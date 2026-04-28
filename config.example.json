@@ -1,0 +1,14 @@
+{
+  "startUrl": "https://www.zhipin.com/web/chat/search",
+  "limit": 20,
+  "includeDetails": true,
+  "headless": false,
+  "userDataDir": ".browser-profile",
+  "outputDir": "data",
+  "fieldPolicy": {
+    "storeFullResumeText": false,
+    "storeContactInfo": false,
+    "maxSummaryChars": 220,
+    "maxDetailSummaryChars": 360
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+.browser-profile/
+.boss-profile/
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+data-corrected/
+data-python/
+*.log
+.DS_Store
