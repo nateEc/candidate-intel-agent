@@ -80,6 +80,31 @@ npm run capture:cdp -- --limit 10 --skip-apply --detail-max-pages 3
 这个模式会连接 9222 端口上的 Chrome，用 DOM 读取页面，比辅助功能 fallback 快很多。
 详情页正文由 BOSS 的 canvas 渲染，脚本会裁剪详情弹窗截图并用 macOS Vision OCR 读取文字；原始截图会保存在 `data-python/resume-screenshots/<run-id>/` 便于复核。
 
+也可以让脚本先设置搜索条件，再抓取。例如搜索「上海 / 不限职位 / 腾讯」：
+
+```bash
+npm run capture:cdp -- \
+  --city 上海 \
+  --position 不限职位 \
+  --keyword 腾讯 \
+  --clear-filters \
+  --limit 90 \
+  --detail-max-pages 2
+```
+
+只设置搜索条件、不抓取：
+
+```bash
+npm run capture:cdp -- \
+  --city 上海 \
+  --position 不限职位 \
+  --keyword 腾讯 \
+  --clear-filters \
+  --apply-only
+```
+
+注意：BOSS 下拉里的「热门」是城市列表分组，不是最终城市值；脚本会真实点击它，但页面城市不会变成「热门」。量产时建议传具体城市，比如 `北京`、`上海`、`深圳`。
+
 如果当前搜索结果每次只加载 15 个，可以让脚本先滚动加载更多：
 
 ```bash

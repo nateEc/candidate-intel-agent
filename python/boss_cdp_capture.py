@@ -44,6 +44,7 @@ APPLY_CONFIG_JS = r"""
 async (config) => {
   const scope = getSearchScope();
   const doc = scope.document;
+  const actions = [];
 
   function visible(el) {
     const rect = el.getBoundingClientRect();
@@ -58,46 +59,116 @@ async (config) => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function clickText(label) {
+  async function pause(ms = 180) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function clickElement(element) {
+    if (!element) return false;
+    element.scrollIntoView({ block: "center", inline: "nearest" });
+    element.click();
+    return true;
+  }
+
+  function clickText(label, options = {}) {
     if (!label) return false;
-    const elements = [...doc.querySelectorAll("button, a, span, div, li")];
-    const exact = elements.find((el) => visible(el) && el.textContent.trim() === label);
-    if (exact) {
-      exact.click();
-      return true;
-    }
-    const contains = elements.find((el) => visible(el) && el.textContent.trim().includes(label) && el.textContent.trim().length <= label.length + 8);
-    if (contains) {
-      contains.click();
-      return true;
+    const root = options.rootSelector ? doc.querySelector(options.rootSelector) : doc;
+    if (!root) return false;
+    const elements = [...root.querySelectorAll("button, a, span, div, li")].filter(visible);
+    const exact = elements.find((el) => normalize(el.textContent) === label);
+    if (exact) return clickElement(exact);
+    if (options.allowContains) {
+      const contains = elements.find((el) => {
+        const text = normalize(el.textContent);
+        return text.includes(label) && text.length <= label.length + 8;
+      });
+      if (contains) return clickElement(contains);
     }
     return false;
   }
 
-  if (config.keyword) {
+  async function setKeyword(keyword) {
+    if (!keyword) return;
     const inputs = [...doc.querySelectorAll("input")].filter(visible);
-    const input = inputs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    const input = doc.querySelector(".search-input") || inputs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
     if (input) {
-      nativeSetValue(input, config.keyword);
+      input.focus();
+      nativeSetValue(input, keyword);
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
       input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true }));
+      actions.push(`keyword:${keyword}`);
+      await pause(220);
     }
   }
 
-  for (const label of [config.city, config.position, ...(config.filters || [])]) {
-    if (label) clickText(label);
-    await new Promise((resolve) => setTimeout(resolve, 220));
+  async function selectCity(city) {
+    if (!city) return;
+    const cityWrap = doc.querySelector(".city-wrap") || doc.querySelector(".city");
+    if (!isCityBoxOpen()) {
+      clickElement(cityWrap);
+      await pause(220);
+    }
+    if (!isCityBoxOpen()) {
+      clickElement(cityWrap);
+      await pause(220);
+    }
+    const clicked = clickText(city, { rootSelector: ".city-box" }) || clickText(city);
+    actions.push(clicked ? `city:${city}` : `city-missing:${city}`);
+    await pause(360);
   }
 
-  if (config.keyword) {
-    const clickable = [...doc.querySelectorAll("button, a, div, span")].find((el) => {
+  function isCityBoxOpen() {
+    const box = doc.querySelector(".city-box");
+    return Boolean(box && visible(box));
+  }
+
+  async function selectPosition(position) {
+    if (!position) return;
+    const current = normalize((doc.querySelector(".search-current-job") || {}).textContent);
+    if (current === position) {
+      actions.push(`position-current:${position}`);
+      return;
+    }
+    const trigger = doc.querySelector(".search-job-list-C") || doc.querySelector(".ui-dropmenu-label");
+    clickElement(trigger);
+    await pause(260);
+    const clicked = clickText(position) || clickText(position, { allowContains: true });
+    actions.push(clicked ? `position:${position}` : `position-missing:${position}`);
+    await pause(360);
+  }
+
+  async function applyFilters(filters) {
+    for (const label of filters || []) {
+      const clicked = clickText(label) || clickText(label, { allowContains: true });
+      actions.push(clicked ? `filter:${label}` : `filter-missing:${label}`);
+      await pause(220);
+    }
+  }
+
+  async function clickSearch() {
+    const searchIcon = doc.querySelector(".icon-search");
+    if (clickElement(searchIcon)) {
+      actions.push("search:icon");
+      await pause(900);
+      return;
+    }
+    const clickable = [...doc.querySelectorAll("button, a, div, span, i")].find((el) => {
       const rect = el.getBoundingClientRect();
-      return visible(el) && rect.width >= 40 && rect.height >= 30 && (el.textContent.trim() === "搜索" || /search|sou/i.test(el.className));
+      return visible(el) && rect.width >= 40 && rect.height >= 30 && (normalize(el.textContent) === "搜索" || /search|sou/i.test(el.className));
     });
-    if (clickable) clickable.click();
+    if (clickElement(clickable)) actions.push("search:fallback");
+    await pause(900);
   }
 
-  return { ok: true, url: scope.window.location.href };
+  await selectCity(config.city);
+  await selectPosition(config.position);
+  await setKeyword(config.keyword);
+  await applyFilters(config.filters || []);
+  if (config.keyword || config.city || config.position || (config.filters || []).length) {
+    await clickSearch();
+  }
+
+  return { ok: true, url: scope.window.location.href, actions, state: readSearchState() };
 
   function getSearchScope() {
     const frames = [...document.querySelectorAll("iframe")];
@@ -106,6 +177,20 @@ async (config) => {
       return { window: frame.contentWindow, document: frame.contentDocument };
     }
     return { window, document };
+  }
+
+  function readSearchState() {
+    const input = doc.querySelector(".search-input");
+    return {
+      city: normalize((doc.querySelector(".city") || {}).textContent),
+      position: normalize((doc.querySelector(".search-current-job") || {}).textContent),
+      keyword: input ? input.value : "",
+      visibleTextHead: normalize(doc.body ? doc.body.innerText : "").slice(0, 260)
+    };
+  }
+
+  function normalize(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
   }
 }
 """
@@ -274,6 +359,120 @@ GET_RESUME_FRAME_STATE_JS = r"""
     canvasStyle,
     key: `${Math.round(rect.y)}|${Math.round(rect.bottom)}|${canvasStyle}`
   };
+}
+"""
+
+
+GET_SEARCH_POINT_JS = r"""
+(request) => {
+  const scope = getSearchScope();
+  const doc = scope.document;
+  const target = request || {};
+  let element = null;
+
+  if (target.selector) {
+    const root = target.rootSelector ? doc.querySelector(target.rootSelector) : doc;
+    element = root ? root.querySelector(target.selector) : null;
+  }
+  if (!element && target.text) {
+    const root = target.rootSelector ? doc.querySelector(target.rootSelector) : doc;
+    element = findTextElement(root || doc, target.text, Boolean(target.allowContains));
+  }
+
+  if (!element) return { ok: false, reason: "not-found" };
+  const rect = element.getBoundingClientRect();
+  const frameRect = scope.frame ? scope.frame.getBoundingClientRect() : { x: 0, y: 0 };
+  return {
+    ok: true,
+    x: frameRect.x + rect.x + rect.width / 2,
+    y: frameRect.y + rect.y + rect.height / 2,
+    text: normalize(element.innerText || element.textContent || element.value || ""),
+    selector: target.selector || "",
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  };
+
+  function findTextElement(root, label, allowContains) {
+    const elements = [...root.querySelectorAll("button, a, span, div, li")].filter(visible);
+    return elements.find((el) => normalize(el.textContent) === label) ||
+      (allowContains ? elements.find((el) => {
+        const text = normalize(el.textContent);
+        return text.includes(label) && text.length <= label.length + 8;
+      }) : null);
+  }
+
+  function visible(el) {
+    const rect = el.getBoundingClientRect();
+    const style = scope.window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  }
+
+  function getSearchScope() {
+    const frames = [...document.querySelectorAll("iframe")];
+    const frame = frames.find((item) => item.src.includes("/web/frame/search")) || frames[0];
+    if (frame && frame.contentWindow && frame.contentDocument) {
+      return { window: frame.contentWindow, document: frame.contentDocument, frame };
+    }
+    return { window, document, frame: null };
+  }
+
+  function normalize(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
+  }
+}
+"""
+
+
+SET_SEARCH_KEYWORD_JS = r"""
+(keyword) => {
+  const scope = getSearchScope();
+  const doc = scope.document;
+  const input = doc.querySelector(".search-input") || [...doc.querySelectorAll("input")].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+  if (!input) return { ok: false };
+  const setter = Object.getOwnPropertyDescriptor(scope.window.HTMLInputElement.prototype, "value").set;
+  input.focus();
+  setter.call(input, keyword || "");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", bubbles: true }));
+  return { ok: true, keyword: input.value };
+
+  function getSearchScope() {
+    const frames = [...document.querySelectorAll("iframe")];
+    const frame = frames.find((item) => item.src.includes("/web/frame/search")) || frames[0];
+    if (frame && frame.contentWindow && frame.contentDocument) {
+      return { window: frame.contentWindow, document: frame.contentDocument };
+    }
+    return { window, document };
+  }
+}
+"""
+
+
+READ_SEARCH_STATE_JS = r"""
+() => {
+  const scope = getSearchScope();
+  const doc = scope.document;
+  const input = doc.querySelector(".search-input");
+  return {
+    city: normalize((doc.querySelector(".city") || {}).textContent),
+    position: normalize((doc.querySelector(".search-current-job") || {}).textContent),
+    keyword: input ? input.value : "",
+    visibleTextHead: normalize(doc.body ? doc.body.innerText : "").slice(0, 260)
+  };
+
+  function getSearchScope() {
+    const frames = [...document.querySelectorAll("iframe")];
+    const frame = frames.find((item) => item.src.includes("/web/frame/search")) || frames[0];
+    if (frame && frame.contentWindow && frame.contentDocument) {
+      return { window: frame.contentWindow, document: frame.contentDocument };
+    }
+    return { window, document };
+  }
+
+  function normalize(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
+  }
 }
 """
 
@@ -568,6 +767,73 @@ def merge_ocr_pages(page_texts: list[str]) -> str:
     return "\n".join(lines)
 
 
+def apply_search_config(client: CdpClient, config: dict[str, Any]) -> dict[str, Any]:
+    actions: list[str] = []
+
+    if config.get("city"):
+        state = client.evaluate(READ_SEARCH_STATE_JS) or {}
+        if state.get("city") == config["city"]:
+            actions.append(f"city-current:{config['city']}")
+        else:
+            click_search_point(client, {"selector": ".city-wrap"}, "city-open")
+            time.sleep(0.25)
+            clicked_option = click_search_point(
+                client,
+                {"rootSelector": ".city-box", "text": config["city"], "allowContains": False},
+                f"city:{config['city']}",
+            )
+            time.sleep(0.45)
+            state = client.evaluate(READ_SEARCH_STATE_JS) or {}
+            if not clicked_option:
+                actions.append(f"city-missing:{config['city']}->{state.get('city') or ''}")
+            elif state.get("city") == config["city"]:
+                actions.append(f"city:{config['city']}")
+            else:
+                actions.append(f"city-clicked-no-change:{config['city']}->{state.get('city') or ''}")
+
+    if config.get("position"):
+        state = client.evaluate(READ_SEARCH_STATE_JS) or {}
+        if state.get("position") == config["position"]:
+            actions.append(f"position-current:{config['position']}")
+        else:
+            click_search_point(client, {"selector": ".search-job-list-C"}, "position-open")
+            time.sleep(0.3)
+            actions.append(
+                click_search_point(
+                    client,
+                    {"text": config["position"], "allowContains": True},
+                    f"position:{config['position']}",
+                )
+                or f"position-missing:{config['position']}"
+            )
+            time.sleep(0.45)
+
+    if config.get("keyword") is not None:
+        keyword_result = client.evaluate(SET_SEARCH_KEYWORD_JS, config.get("keyword") or "")
+        actions.append(f"keyword:{(keyword_result or {}).get('keyword', config.get('keyword') or '')}")
+        time.sleep(0.25)
+
+    for label in config.get("filters", []) or []:
+        actions.append(
+            click_search_point(client, {"text": label, "allowContains": True}, f"filter:{label}")
+            or f"filter-missing:{label}"
+        )
+        time.sleep(0.25)
+
+    actions.append(click_search_point(client, {"selector": ".icon-search"}, "search:icon") or "search-missing")
+    time.sleep(1.0)
+
+    return {"ok": True, "actions": actions, "state": client.evaluate(READ_SEARCH_STATE_JS)}
+
+
+def click_search_point(client: CdpClient, request: dict[str, Any], action_name: str) -> str | None:
+    point = client.evaluate(GET_SEARCH_POINT_JS, request)
+    if not point or not point.get("ok"):
+        return None
+    client.click(float(point["x"]), float(point["y"]))
+    return action_name
+
+
 def load_candidate_cards(client: CdpClient, config: dict[str, Any]) -> list[dict[str, Any]]:
     load_all = bool(config.get("load_all"))
     configured_limit = int(config.get("limit") or 0)
@@ -622,10 +888,22 @@ def main() -> None:
     config = load_config(args.config)
     if args.limit is not None:
         config["limit"] = args.limit
+    if args.keyword is not None:
+        config["keyword"] = args.keyword
+    if args.city is not None:
+        config["city"] = args.city
+    if args.position is not None:
+        config["position"] = args.position
+    if args.filters is not None:
+        config["filters"] = args.filters
+    if args.clear_filters:
+        config["filters"] = []
     if args.no_details:
         config["include_details"] = False
     if args.skip_apply:
         config["skip_apply"] = True
+    if args.no_manual_ready:
+        config["manual_ready"] = False
     if args.cdp_url:
         config["cdp_url"] = args.cdp_url
     if args.detail_max_pages is not None:
@@ -648,8 +926,16 @@ def main() -> None:
             input("请在远程调试 Chrome 中确认已登录 BOSS，并停在人才库搜索页。准备好后按回车继续...")
 
         if not config.get("skip_apply"):
-            client.evaluate(APPLY_CONFIG_JS, config)
+            apply_result = apply_search_config(client, config)
+            print(f"已应用搜索条件：{json.dumps(apply_result, ensure_ascii=False)}")
             time.sleep(1.2)
+        elif args.apply_only:
+            print("--apply-only 与 --skip-apply 同时传入，没有执行搜索条件设置。")
+            return
+
+        if args.apply_only:
+            return
+
         cards = load_candidate_cards(client, config)
         if not cards:
             print("没有识别到候选人卡片。请确认 Chrome target 是 BOSS 人才库搜索页，且列表可见。")
@@ -809,14 +1095,21 @@ def load_config(path: str) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="BOSS 人才库 raw CDP 采集助手")
-    parser.add_argument("--config", default="boss_filters.example.json", help="筛选配置 JSON")
+    parser.add_argument("--config", default="boss_filters.json", help="筛选配置 JSON；默认读取 boss_filters.json，不存在则使用空配置")
     parser.add_argument("--limit", type=int, default=None, help="覆盖配置里的采集数量")
+    parser.add_argument("--keyword", default=None, help="搜索关键词，例如 腾讯")
+    parser.add_argument("--city", default=None, help="城市/地区，例如 热门、北京、上海")
+    parser.add_argument("--position", default=None, help="职位下拉项，例如 不限职位")
+    parser.add_argument("--filter", action="append", dest="filters", help="额外筛选项，可重复传入")
+    parser.add_argument("--clear-filters", action="store_true", help="清空配置文件中的 filters")
     parser.add_argument("--cdp-url", default=None, help="Chrome DevTools URL，例如 http://127.0.0.1:9222")
     parser.add_argument("--no-details", action="store_true", help="只采列表，不点详情")
     parser.add_argument("--detail-max-pages", type=int, default=None, help="每份在线简历最多滚动 OCR 几屏")
     parser.add_argument("--load-all", action="store_true", help="持续向下加载，直到没有更多候选人")
     parser.add_argument("--max-scroll-rounds", type=int, default=None, help="加载更多阶段最多滚动轮数")
     parser.add_argument("--skip-apply", action="store_true", help="跳过自动筛选/搜索，直接读取当前页面")
+    parser.add_argument("--apply-only", action="store_true", help="只设置搜索条件并触发搜索，不抓取候选人")
+    parser.add_argument("--no-manual-ready", action="store_true", help="不等待人工回车确认")
     return parser.parse_args()
 
 
