@@ -141,3 +141,43 @@ CREATE TABLE org_findings (
 CREATE INDEX idx_org_findings_company ON org_findings (company_name);
 CREATE INDEX idx_org_findings_type ON org_findings (finding_type);
 CREATE INDEX idx_org_findings_generated_at ON org_findings (generated_at);
+
+CREATE TABLE org_intel_jobs (
+  id TEXT PRIMARY KEY,
+  client_request_id TEXT,
+  company_name TEXT NOT NULL,
+  aliases_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  mode TEXT NOT NULL DEFAULT 'standard',
+  refresh TEXT NOT NULL DEFAULT 'auto',
+  status TEXT NOT NULL DEFAULT 'queued',
+  current_step TEXT,
+  eta_seconds INTEGER,
+  eta_at TIMESTAMPTZ,
+  request_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  report_id BIGINT REFERENCES org_intel_reports(id),
+  report_path TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_intel_jobs_company ON org_intel_jobs (company_name);
+CREATE INDEX idx_org_intel_jobs_status ON org_intel_jobs (status);
+CREATE INDEX idx_org_intel_jobs_created_at ON org_intel_jobs (created_at);
+
+CREATE TABLE org_intel_job_runs (
+  id BIGSERIAL PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES org_intel_jobs(id),
+  run_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  command TEXT,
+  run_file TEXT,
+  row_count INTEGER,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  error_message TEXT
+);
+
+CREATE INDEX idx_org_intel_job_runs_job_id ON org_intel_job_runs (job_id);

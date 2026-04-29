@@ -157,6 +157,46 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_org_findings_company ON org_findings(company_name);
         CREATE INDEX IF NOT EXISTS idx_org_findings_type ON org_findings(finding_type);
         CREATE INDEX IF NOT EXISTS idx_org_findings_generated_at ON org_findings(generated_at);
+
+        CREATE TABLE IF NOT EXISTS org_intel_jobs (
+          id TEXT PRIMARY KEY,
+          client_request_id TEXT,
+          company_name TEXT NOT NULL,
+          aliases_json TEXT NOT NULL DEFAULT '[]',
+          mode TEXT NOT NULL DEFAULT 'standard',
+          refresh TEXT NOT NULL DEFAULT 'auto',
+          status TEXT NOT NULL DEFAULT 'queued',
+          current_step TEXT,
+          eta_seconds INTEGER,
+          eta_at TEXT,
+          request_json TEXT NOT NULL DEFAULT '{}',
+          error_message TEXT,
+          report_id INTEGER,
+          report_path TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          started_at TEXT,
+          finished_at TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_org_intel_jobs_company ON org_intel_jobs(company_name);
+        CREATE INDEX IF NOT EXISTS idx_org_intel_jobs_status ON org_intel_jobs(status);
+        CREATE INDEX IF NOT EXISTS idx_org_intel_jobs_created_at ON org_intel_jobs(created_at);
+
+        CREATE TABLE IF NOT EXISTS org_intel_job_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          job_id TEXT NOT NULL,
+          run_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          command TEXT,
+          run_file TEXT,
+          row_count INTEGER,
+          started_at TEXT,
+          finished_at TEXT,
+          error_message TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_org_intel_job_runs_job_id ON org_intel_job_runs(job_id);
         """
     )
 

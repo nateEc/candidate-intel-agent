@@ -146,6 +146,8 @@ def capture_jobs(args: argparse.Namespace) -> Path:
         args.city,
         "--limit",
         str(args.jobs_limit),
+        "--cdp-url",
+        args.jobs_cdp_url,
         "--no-manual-ready",
     ]
     if args.jobs_no_details:
@@ -166,6 +168,8 @@ def capture_candidates(args: argparse.Namespace) -> Path:
         "--detail-max-pages",
         str(args.candidate_detail_max_pages),
         "--clear-filters",
+        "--cdp-url",
+        args.candidates_cdp_url,
         "--no-manual-ready",
     ]
     if args.candidate_city:
@@ -250,8 +254,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--since-days", type=int, default=90, help="报告观察窗口天数")
     parser.add_argument("--freshness-hours", type=int, default=24, help="auto 模式下多少小时内数据算新鲜")
     parser.add_argument("--city", default="100010000", help="职位侧城市，默认全国 100010000")
+    parser.add_argument("--jobs-cdp-url", default="http://127.0.0.1:9223", help="职位侧账号 Chrome CDP URL")
     parser.add_argument("--jobs-limit", type=int, default=90, help="职位侧最多采集多少条")
     parser.add_argument("--jobs-no-details", action="store_true", help="职位侧不点击右侧详情")
+    parser.add_argument("--candidates-cdp-url", default="http://127.0.0.1:9222", help="人才库账号 Chrome CDP URL")
     parser.add_argument("--candidate-city", default=None, help="人才库城市；为空时不改动人才库城市")
     parser.add_argument("--candidate-position", default="不限职位", help="人才库职位筛选")
     parser.add_argument("--candidates-limit", type=int, default=90, help="人才库最多采集多少条")

@@ -80,6 +80,47 @@ npm run capture:cdp -- --limit 10 --skip-apply --detail-max-pages 3
 这个模式会连接 9222 端口上的 Chrome，用 DOM 读取页面，比辅助功能 fallback 快很多。
 详情页正文由 BOSS 的 canvas 渲染，脚本会裁剪详情弹窗截图并用 macOS Vision OCR 读取文字；原始截图会保存在 `data-python/resume-screenshots/<run-id>/` 便于复核。
 
+如果 BOSS 的职位侧和人才库侧必须使用两个不同账号，请启动两个独立 Chrome 用户目录和两个 CDP 端口。不要在同一个 Chrome profile 里开两个账号，同站 cookie 会互相覆盖：
+
+```bash
+# 人才库/招聘者账号
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=http://127.0.0.1:9222 \
+  --user-data-dir=/tmp/boss-rpa-candidates \
+  --no-first-run \
+  https://www.zhipin.com/web/chat/search
+
+# 职位侧/求职者账号
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9223 \
+  --remote-allow-origins=http://127.0.0.1:9223 \
+  --user-data-dir=/tmp/boss-rpa-jobs \
+  --no-first-run \
+  "https://www.zhipin.com/web/geek/jobs?city=100010000"
+```
+
+分别登录两个账号后，统一入口默认会用 `9222` 抓人才库、`9223` 抓职位侧：
+
+```bash
+npm run org:intel -- \
+  --company 月之暗面 \
+  --aliases Moonshot Kimi moonshot.ai \
+  --refresh auto \
+  --report
+```
+
+如果你想换端口，可以显式传：
+
+```bash
+npm run org:intel -- \
+  --company 月之暗面 \
+  --jobs-cdp-url http://127.0.0.1:9223 \
+  --candidates-cdp-url http://127.0.0.1:9222 \
+  --refresh auto \
+  --report
+```
+
 也可以让脚本先设置搜索条件，再抓取。例如搜索「上海 / 不限职位 / 腾讯」：
 
 ```bash
@@ -181,6 +222,34 @@ npm run org:intel -- \
 npm run org:intel -- --company 月之暗面 --refresh jobs --report
 npm run org:intel -- --company 月之暗面 --refresh candidates --report
 ```
+
+OpenClaw 对接时使用本地 FastAPI service：
+
+```bash
+npm run org:service
+```
+
+提交异步情报任务：
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/org-intel/requests \
+  -H 'content-type: application/json' \
+  -d '{
+    "company": "字节",
+    "aliases": ["字节跳动", "ByteDance", "抖音", "TikTok", "飞书"],
+    "mode": "standard",
+    "refresh": "auto",
+    "client_request_id": "openclaw-example"
+  }'
+```
+
+如果库里没有新鲜报告，接口会立即返回 `job_id`、`eta_seconds` 和 `eta_at`。OpenClaw 到时间后轮询：
+
+```bash
+curl http://127.0.0.1:8787/v1/org-intel/requests/<job_id>
+```
+
+状态可能是 `queued`、`running_jobs`、`running_candidates`、`importing`、`generating_report`、`ready`、`blocked_needs_human` 或 `failed`。`ready` 时返回 `report_markdown` 和结构化 `findings`；如果 BOSS 触发验证，会返回 `blocked_needs_human`，由人工在采集浏览器里处理。
 
 导入人才库和职位侧 run 后，可以生成 BOSS-only 组织情报 Markdown：
 
