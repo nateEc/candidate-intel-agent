@@ -1,0 +1,31 @@
+{
+  "companies": [
+    {
+      "name": "腾讯",
+      "aliases": [
+        "Tencent",
+        "腾讯科技",
+        "腾讯云",
+        "微信",
+        "WXG",
+        "PCG",
+        "CSIG",
+        "IEG",
+        "TEG"
+      ],
+      "default_city": "100010000",
+      "default_position": "不限职位"
+    },
+    {
+      "name": "月之暗面",
+      "aliases": [
+        "Moonshot",
+        "moonshot.ai",
+        "北京月之暗面",
+        "Kimi"
+      ],
+      "default_city": "100010000",
+      "default_position": "不限职位"
+    }
+  ]
+}

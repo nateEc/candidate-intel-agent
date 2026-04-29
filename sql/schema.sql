@@ -82,3 +82,62 @@ CREATE TABLE candidate_notes (
 
 CREATE INDEX idx_candidate_notes_candidate_id ON candidate_notes (candidate_id);
 CREATE INDEX idx_candidate_notes_status ON candidate_notes (status);
+
+CREATE TABLE boss_job_postings (
+  id BIGSERIAL PRIMARY KEY,
+  source_platform TEXT NOT NULL DEFAULT 'boss_zhipin',
+  source_fingerprint TEXT NOT NULL UNIQUE,
+  source_url TEXT,
+  search_keyword TEXT,
+  search_city TEXT,
+  job_title TEXT,
+  company_name TEXT,
+  job_city TEXT,
+  salary_text TEXT,
+  experience_requirement TEXT,
+  education_requirement TEXT,
+  recruiter_name TEXT,
+  recruiter_title TEXT,
+  tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  description TEXT,
+  raw_card_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_boss_job_postings_company ON boss_job_postings (company_name);
+CREATE INDEX idx_boss_job_postings_title ON boss_job_postings (job_title);
+CREATE INDEX idx_boss_job_postings_city ON boss_job_postings (job_city);
+CREATE INDEX idx_boss_job_postings_collected_at ON boss_job_postings (collected_at);
+CREATE INDEX idx_boss_job_postings_tags_gin ON boss_job_postings USING GIN (tags_json);
+
+CREATE TABLE org_intel_reports (
+  id BIGSERIAL PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  aliases_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  report_type TEXT NOT NULL DEFAULT 'single_company',
+  report_markdown TEXT NOT NULL,
+  source_counts_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  report_path TEXT
+);
+
+CREATE INDEX idx_org_intel_reports_company ON org_intel_reports (company_name);
+CREATE INDEX idx_org_intel_reports_generated_at ON org_intel_reports (generated_at);
+
+CREATE TABLE org_findings (
+  id BIGSERIAL PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  finding_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'medium',
+  confidence NUMERIC(4, 3),
+  summary TEXT NOT NULL,
+  evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  report_id BIGINT REFERENCES org_intel_reports(id)
+);
+
+CREATE INDEX idx_org_findings_company ON org_findings (company_name);
+CREATE INDEX idx_org_findings_type ON org_findings (finding_type);
+CREATE INDEX idx_org_findings_generated_at ON org_findings (generated_at);

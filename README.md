@@ -119,6 +119,90 @@ npm run capture:cdp -- --load-all --skip-apply --no-details
 
 量产抓详情时可以去掉 `--no-details`，并用 `--detail-max-pages 1` 或 `2` 控制每份在线简历 OCR 的页数。
 
+## BOSS 职位侧采集
+
+组织情报还需要招聘岗位信号。职位侧采集同样连接 9222 端口上的 Chrome，会打开 BOSS 的 `/web/geek/jobs` 职位搜索页，先读取左侧职位列表，再逐个点击职位卡读取右侧详情：
+
+```bash
+npm run capture:jobs -- \
+  --company 腾讯 \
+  --limit 30
+```
+
+默认城市是全国，等价于 BOSS URL 里的 `city=100010000`。如果要限定城市，可以传 `--city 上海` 或 `--city 101020100`；`--city 热门` 和 `--city-group hot` 仍会展开成常用城市组：北京、上海、深圳、广州、杭州、成都、武汉、南京、苏州、西安。`--limit` 表示每个城市最多读取多少条左侧职位卡。左侧列表每次加载约 15 条时，脚本会持续滚动到目标数量或没有新增职位。
+
+如果你已经手动打开了类似下面的页面，也可以直接读取当前搜索：
+
+```bash
+npm run capture:jobs -- --company 月之暗面 --limit 90 --no-manual-ready
+```
+
+默认会点击每个职位卡并读取右侧 JD；只想快速读取左侧列表时加 `--no-details`。
+
+职位采集输出：
+
+```text
+<output-dir>/boss_job_postings.ndjson
+<output-dir>/runs/run-*.json
+```
+
+导入 SQLite：
+
+```bash
+.venv/bin/python python/import_run_sqlite.py data-python/runs/run-*.json \
+  --db data-python/boss_talent.sqlite
+```
+
+## 组织情报报告
+
+统一入口会编排职位侧采集、人才库采集、入库和报告生成：
+
+```bash
+npm run org:intel -- \
+  --company 月之暗面 \
+  --aliases Moonshot Kimi moonshot.ai \
+  --refresh auto \
+  --report
+```
+
+`--refresh auto` 会先看 SQLite 里是否已有近 24 小时的新鲜数据；缺职位侧数据就跑 `capture:jobs`，缺人才侧观察就跑 `capture:cdp`。如果只想生成报告不刷新：
+
+```bash
+npm run org:intel -- \
+  --company 月之暗面 \
+  --aliases Moonshot Kimi moonshot.ai \
+  --refresh none \
+  --report
+```
+
+也可以只刷新某一侧：
+
+```bash
+npm run org:intel -- --company 月之暗面 --refresh jobs --report
+npm run org:intel -- --company 月之暗面 --refresh candidates --report
+```
+
+导入人才库和职位侧 run 后，可以生成 BOSS-only 组织情报 Markdown：
+
+```bash
+npm run report:org -- \
+  --company 腾讯 \
+  --alias Tencent \
+  --alias 腾讯科技 \
+  --db data-python/boss_talent.sqlite
+```
+
+也可以用目标配置：
+
+```bash
+npm run report:org -- \
+  --company 腾讯 \
+  --target-config org_targets.example.json \
+  --db data-python/boss_talent.sqlite
+```
+
+报告会写入 `org-intel/<公司名>/report-*.md`，并把报告正文、来源计数和结构化组织判断写入 SQLite 的 `org_intel_reports` / `org_findings` 表。正文只输出聚合判断；原始候选人信号以脱敏 ID 折叠展示。
+
 ## 数据策略
 
 这个 MVP 采用 B+C 混合版：

@@ -9,6 +9,9 @@
     "capture:chrome-ax": "node src/capture-chrome-ax.js",
     "capture:python": "python3 python/boss_capture.py",
     "capture:cdp": ".venv/bin/python python/boss_cdp_capture.py",
+    "capture:jobs": ".venv/bin/python python/boss_jobs_cdp_capture.py",
+    "org:intel": ".venv/bin/python python/org_intel_agent.py",
+    "report:org": ".venv/bin/python python/org_report.py",
     "test:python": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "test": "node --test tests/*.test.js"
   },
