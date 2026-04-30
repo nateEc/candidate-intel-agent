@@ -162,11 +162,12 @@ npm run capture:cdp -- --load-all --skip-apply --no-details
 
 ## BOSS 职位侧采集
 
-组织情报还需要招聘岗位信号。职位侧采集同样连接 9222 端口上的 Chrome，会打开 BOSS 的 `/web/geek/jobs` 职位搜索页，先读取左侧职位列表，再逐个点击职位卡读取右侧详情：
+组织情报还需要招聘岗位信号。职位侧采集默认连接 `9223` 端口上的职位侧/求职者 Chrome，会打开 BOSS 的 `/web/geek/jobs` 职位搜索页，先读取左侧职位列表，再逐个点击职位卡读取右侧详情：
 
 ```bash
 npm run capture:jobs -- \
   --company 腾讯 \
+  --cdp-url http://127.0.0.1:9223 \
   --limit 30
 ```
 
@@ -175,7 +176,7 @@ npm run capture:jobs -- \
 如果你已经手动打开了类似下面的页面，也可以直接读取当前搜索：
 
 ```bash
-npm run capture:jobs -- --company 月之暗面 --limit 90 --no-manual-ready
+npm run capture:jobs -- --company 月之暗面 --limit 90 --cdp-url http://127.0.0.1:9223 --no-manual-ready
 ```
 
 默认会点击每个职位卡并读取右侧 JD；只想快速读取左侧列表时加 `--no-details`。
@@ -227,6 +228,19 @@ OpenClaw 对接时使用本地 FastAPI service：
 
 ```bash
 npm run org:service
+```
+
+固定机器部署时建议直接用一键脚本，它会启动两套 CDP Chrome，并把 FastAPI worker 指向对应端口：
+
+```bash
+ORG_INTEL_HOST=0.0.0.0 ORG_INTEL_PORT=8787 ./scripts/start_org_intel_stack.sh
+```
+
+默认端口约定：
+
+```text
+BOSS_CANDIDATES_CDP_URL=http://127.0.0.1:9222  # 人才库/招聘者账号
+BOSS_JOBS_CDP_URL=http://127.0.0.1:9223        # 职位侧/求职者账号
 ```
 
 提交异步情报任务：

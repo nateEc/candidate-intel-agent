@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from boss_jobs_parse import create_job_fingerprint, parse_job_card_text
 
 DEFAULT_CONFIG = {
     "start_url": "https://www.zhipin.com/web/geek/jobs",
-    "cdp_url": "http://127.0.0.1:9222",
+    "cdp_url": "http://127.0.0.1:9223",
     "output_dir": "data-python",
     "company": "",
     "keyword": "",
@@ -29,6 +30,8 @@ DEFAULT_CONFIG = {
     "hard_max_jobs": 500,
     "include_details": True,
     "detail_wait_ms": 700,
+    "job_wait_ms": 0,
+    "job_jitter_ms": 0,
     "manual_ready": True,
 }
 
@@ -400,6 +403,7 @@ def main() -> None:
                 seen_fingerprints.add(posting["source_fingerprint"])
                 postings.append(posting)
                 print(f"已读取职位 {len(postings)}: {posting.get('job_title') or '未知'} {posting.get('salary_text') or ''}")
+                wait_between_jobs(config, list_position, len(cards))
 
         append_jsonl(output_dir / "boss_job_postings.ndjson", postings)
         run_file = write_run(
@@ -436,14 +440,31 @@ def apply_args(config: dict[str, Any], args: argparse.Namespace) -> None:
         config["load_all"] = True
     if args.max_scroll_rounds is not None:
         config["max_scroll_rounds"] = args.max_scroll_rounds
+    if args.load_more_wait_ms is not None:
+        config["load_more_wait_ms"] = args.load_more_wait_ms
     if args.cdp_url:
         config["cdp_url"] = args.cdp_url
     if args.no_details:
         config["include_details"] = False
     if args.detail_wait_ms is not None:
         config["detail_wait_ms"] = args.detail_wait_ms
+    if args.job_wait_ms is not None:
+        config["job_wait_ms"] = args.job_wait_ms
+    if args.job_jitter_ms is not None:
+        config["job_jitter_ms"] = args.job_jitter_ms
     if args.no_manual_ready:
         config["manual_ready"] = False
+
+
+def wait_between_jobs(config: dict[str, Any], list_position: int, total_cards: int) -> None:
+    if list_position >= total_cards - 1:
+        return
+    base_ms = int(config.get("job_wait_ms") or 0)
+    jitter_ms = int(config.get("job_jitter_ms") or 0)
+    if base_ms <= 0 and jitter_ms <= 0:
+        return
+    delay_ms = base_ms + (random.randint(0, jitter_ms) if jitter_ms > 0 else 0)
+    time.sleep(max(0, delay_ms) / 1000)
 
 
 def expand_cities(city: str | None, city_group: str | None) -> list[str]:
@@ -546,6 +567,7 @@ def capture_job_detail(
 
     client.click(float(point["x"]), float(point["y"]))
     time.sleep(int(config.get("detail_wait_ms", 700)) / 1000)
+    assert_boss_page_ready(client)
     detail = read_job_detail(client)
     detail_text = detail.get("detail_text") or ""
     if not detail_text:
@@ -570,6 +592,7 @@ def capture_job_detail_from_href(
         return {"detail_error": reason}
     navigate(client, href)
     time.sleep(max(1.0, int(config.get("detail_wait_ms", 700)) / 1000))
+    assert_boss_page_ready(client)
     detail = read_job_detail(client)
     detail_text = detail.get("detail_text") or ""
     if not detail_text:
@@ -589,10 +612,6 @@ def read_job_detail(client: CdpClient) -> dict[str, Any]:
 
 
 def get_or_create_job_target(cdp_url: str, start_url: str) -> dict[str, Any]:
-    targets = request_json(f"{cdp_url.rstrip('/')}/json/list")
-    for target in targets:
-        if target.get("type") == "page" and "zhipin.com/web/geek/job" in target.get("url", ""):
-            return target
     encoded = urllib.parse.quote(start_url, safe=":/?=&")
     return request_json(f"{cdp_url.rstrip('/')}/json/new?{encoded}", method="PUT")
 
@@ -615,9 +634,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="每个城市最多读取多少条职位")
     parser.add_argument("--load-all", action="store_true", help="每个城市持续加载到没有新增职位")
     parser.add_argument("--max-scroll-rounds", type=int, default=None, help="加载更多阶段最多滚动轮数")
-    parser.add_argument("--cdp-url", default=None, help="Chrome DevTools URL，例如 http://127.0.0.1:9222")
+    parser.add_argument("--load-more-wait-ms", type=int, default=None, help="加载更多每次滚动后的等待毫秒数")
+    parser.add_argument("--cdp-url", default=None, help="Chrome DevTools URL，例如 http://127.0.0.1:9223")
     parser.add_argument("--no-details", action="store_true", help="只采左侧职位卡片，不点击读取右侧详情")
     parser.add_argument("--detail-wait-ms", type=int, default=None, help="点击职位卡后等待右侧详情渲染的毫秒数")
+    parser.add_argument("--job-wait-ms", type=int, default=None, help="每个职位读取完成后、点击下一个职位前的固定等待毫秒数")
+    parser.add_argument("--job-jitter-ms", type=int, default=None, help="每个职位额外随机等待 0 到该毫秒数")
     parser.add_argument("--no-manual-ready", action="store_true", help="不等待人工回车确认")
     return parser.parse_args()
 

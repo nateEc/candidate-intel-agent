@@ -12,6 +12,7 @@ Examples:
 - "更新一下 Kimi 的组织情报"
 
 The skill talks to the local Intel Agent FastAPI service. OpenClaw should not scrape BOSS directly.
+The Intel Agent backend is expected to own two logged-in BOSS Chrome/CDP sessions: recruiter talent-library on `9222` and geek job-search on `9223`.
 
 ## Service
 

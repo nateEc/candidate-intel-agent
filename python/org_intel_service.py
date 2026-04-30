@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = Path(os.environ.get("ORG_INTEL_DB", "data-python/boss_talent.sqlite")).resolve()
 DEFAULT_OUTPUT_DIR = os.environ.get("ORG_INTEL_OUTPUT_DIR", "org-intel")
 POLL_SECONDS = float(os.environ.get("ORG_INTEL_WORKER_POLL_SECONDS", "2"))
+DEFAULT_CANDIDATES_CDP_URL = os.environ.get("BOSS_CANDIDATES_CDP_URL", "http://127.0.0.1:9222")
+DEFAULT_JOBS_CDP_URL = os.environ.get("BOSS_JOBS_CDP_URL", "http://127.0.0.1:9223")
 
 
 app = FastAPI(title="Org Intel Agent", version="0.1.0")
@@ -42,6 +44,8 @@ class OrgIntelRequest(BaseModel):
     candidate_city: str | None = None
     candidate_position: str = "不限职位"
     freshness_hours: int = 24
+    jobs_cdp_url: str = DEFAULT_JOBS_CDP_URL
+    candidates_cdp_url: str = DEFAULT_CANDIDATES_CDP_URL
 
 
 class OrgIntelResponse(BaseModel):
@@ -75,7 +79,14 @@ def stop_worker() -> None:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"ok": True, "service": "org-intel-agent"}
+    return {
+        "ok": True,
+        "service": "org-intel-agent",
+        "boss_cdp": {
+            "candidates": DEFAULT_CANDIDATES_CDP_URL,
+            "jobs": DEFAULT_JOBS_CDP_URL,
+        },
+    }
 
 
 @app.post("/v1/org-intel/requests", response_model=OrgIntelResponse)
@@ -104,7 +115,7 @@ def create_org_intel_request(payload: OrgIntelRequest) -> OrgIntelResponse:
 
         eta_seconds = estimate_eta_seconds(payload, conn)
         job = store.create_job(conn, request_data, eta_seconds)
-        return job_to_response(conn, job, f"{payload.company} 组织情报正在采集中，预计 {human_eta(eta_seconds)}后可取。")
+        return job_to_response(conn, job, queued_message(payload, eta_seconds))
 
 
 @app.get("/v1/org-intel/requests/{job_id}", response_model=OrgIntelResponse)
@@ -230,6 +241,8 @@ def run_capture_jobs(request: dict[str, Any]) -> tuple[Path, str]:
         request.get("city") or "100010000",
         "--limit",
         str(jobs_limit),
+        "--cdp-url",
+        request.get("jobs_cdp_url") or DEFAULT_JOBS_CDP_URL,
         "--no-manual-ready",
     ]
     if mode == "quick":
@@ -252,6 +265,8 @@ def run_capture_candidates(request: dict[str, Any]) -> tuple[Path, str]:
         "--detail-max-pages",
         str(default_candidate_detail_pages(mode)),
         "--clear-filters",
+        "--cdp-url",
+        request.get("candidates_cdp_url") or DEFAULT_CANDIDATES_CDP_URL,
         "--no-manual-ready",
     ]
     if request.get("candidate_city"):
@@ -392,9 +407,30 @@ def status_message(job: dict[str, Any]) -> str:
 
 
 def estimate_eta_seconds(request: OrgIntelRequest, conn: Any) -> int:
+    required_sources = refresh_sources_for_request(request)
     mode_base = {"quick": 600, "standard": 2100, "full": 5400}[request.mode]
+    if request.report and not required_sources:
+        mode_base = 90
     queued = conn.execute("SELECT COUNT(*) FROM org_intel_jobs WHERE status='queued'").fetchone()[0]
     return mode_base + int(queued) * mode_base
+
+
+def queued_message(request: OrgIntelRequest, eta_seconds: int) -> str:
+    required_sources = refresh_sources_for_request(request)
+    if request.report and not required_sources:
+        return f"{request.company} 已有新鲜原始数据，正在生成组织情报报告，预计 {human_eta(eta_seconds)}后可取。"
+    source_text = "、".join(required_sources) if required_sources else "数据"
+    return f"{request.company} 组织情报正在采集中，需要刷新 {source_text}，预计 {human_eta(eta_seconds)}后可取。"
+
+
+def refresh_sources_for_request(request: OrgIntelRequest) -> list[str]:
+    aliases = normalize_aliases(request.company, request.aliases)
+    sources = []
+    if should_refresh_source(request.refresh, "jobs", DEFAULT_DB, aliases, request.freshness_hours):
+        sources.append("jobs")
+    if should_refresh_source(request.refresh, "candidates", DEFAULT_DB, aliases, request.freshness_hours):
+        sources.append("candidates")
+    return sources
 
 
 def human_eta(seconds: int) -> str:

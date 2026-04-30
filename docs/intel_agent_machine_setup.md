@@ -6,8 +6,8 @@ This document describes how to run the org-intel service on one fixed macOS mach
 
 The Intel machine needs three things:
 
-1. A Chrome instance with remote debugging enabled.
-2. A logged-in BOSS account in that Chrome profile.
+1. A recruiter/talent-library Chrome instance with remote debugging enabled on `9222`.
+2. A geek/job-search Chrome instance with remote debugging enabled on `9223`.
 3. The Intel Agent FastAPI service.
 
 OpenClaw only talks to the FastAPI service. It does not control Chrome directly.
@@ -22,23 +22,36 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Start Chrome with CDP:
+Start the two Chrome/CDP profiles. They must be separate profiles because BOSS login state is same-site cookie based and the recruiter account and geek account can overwrite each other if they share a profile.
 
 ```bash
+# Talent library / recruiter account
 open -na "Google Chrome" --args \
   --remote-debugging-port=9222 \
   --remote-allow-origins=http://127.0.0.1:9222 \
-  --user-data-dir=/tmp/boss-rpa-chrome \
+  --user-data-dir=/tmp/boss-rpa-candidates \
   --no-first-run \
   https://www.zhipin.com/web/chat/search
+
+# Job search / geek account
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9223 \
+  --remote-allow-origins=http://127.0.0.1:9223 \
+  --user-data-dir=/tmp/boss-rpa-jobs \
+  --no-first-run \
+  "https://www.zhipin.com/web/geek/jobs?city=100010000"
 ```
 
-Then log into BOSS manually in that Chrome window.
+Then log into BOSS manually in both windows:
+
+- `9222`: recruiter account that can access `/web/chat/search`.
+- `9223`: geek account that can access `/web/geek/jobs`.
 
 Verify CDP:
 
 ```bash
 curl http://127.0.0.1:9222/json/list
+curl http://127.0.0.1:9223/json/list
 ```
 
 ## Start The Intel Service
@@ -58,7 +71,14 @@ curl http://127.0.0.1:8787/health
 Expected:
 
 ```json
-{"ok": true, "service": "org-intel-agent"}
+{
+  "ok": true,
+  "service": "org-intel-agent",
+  "boss_cdp": {
+    "candidates": "http://127.0.0.1:9222",
+    "jobs": "http://127.0.0.1:9223"
+  }
+}
 ```
 
 ## If OpenClaw Runs On Another Machine
@@ -83,11 +103,11 @@ Recommended network posture:
 
 ## Recommended Daily Operation
 
-1. Keep the Chrome CDP window open.
-2. Keep the BOSS account logged in.
+1. Keep both Chrome CDP windows open.
+2. Keep both BOSS accounts logged in.
 3. Start the FastAPI service.
 4. Let OpenClaw create and poll jobs.
-5. If the API returns `blocked_needs_human`, open the Chrome window and finish BOSS verification manually.
+5. If the API returns `blocked_needs_human`, open the relevant Chrome window and finish BOSS verification manually.
 
 ## Start Everything With One Script
 
@@ -97,7 +117,7 @@ Use:
 ./scripts/start_org_intel_stack.sh
 ```
 
-This starts Chrome CDP and the FastAPI service.
+This starts both Chrome/CDP profiles and the FastAPI service.
 
 Environment variables:
 
@@ -106,6 +126,12 @@ ORG_INTEL_HOST=0.0.0.0
 ORG_INTEL_PORT=8787
 ORG_INTEL_DB=data-python/boss_talent.sqlite
 ORG_INTEL_OUTPUT_DIR=org-intel
+CANDIDATES_CDP_PORT=9222
+CANDIDATES_CHROME_PROFILE=/tmp/boss-rpa-candidates
+BOSS_CANDIDATES_CDP_URL=http://127.0.0.1:9222
+JOBS_CDP_PORT=9223
+JOBS_CHROME_PROFILE=/tmp/boss-rpa-jobs
+BOSS_JOBS_CDP_URL=http://127.0.0.1:9223
 ```
 
 Example:
@@ -152,7 +178,7 @@ Do not run Chrome headless for the first version. BOSS verification needs a visi
 
 ### Service returns `blocked_needs_human`
 
-BOSS triggered a login or verification page. Open Chrome on the intel machine, finish the verification, then submit the request again.
+BOSS triggered a login or verification page. Open the relevant Chrome window on the intel machine, finish the verification, then submit the request again.
 
 ### Service returns `queued` forever
 
@@ -160,11 +186,12 @@ Check whether the uvicorn process is still running. The worker thread lives insi
 
 ### Captures return 0 rows
 
-Open the Chrome CDP window and confirm:
+Open the relevant Chrome CDP window and confirm:
 
 - Logged into BOSS.
 - Not on a verification page.
-- `curl http://127.0.0.1:9222/json/list` shows the BOSS page.
+- Candidate side: `curl http://127.0.0.1:9222/json/list` shows `/web/chat/search`.
+- Job side: `curl http://127.0.0.1:9223/json/list` shows `/web/geek/jobs`.
 
 ### OpenClaw cannot reach the service
 
