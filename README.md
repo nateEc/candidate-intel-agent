@@ -2,6 +2,29 @@
 
 这是一个本地 RPA MVP，用于辅助 HR 在已经登录的 BOSS 直聘人才库页面中读取**当前可见**候选人信息，并写入轻量索引文件。它不是无人值守爬虫，也不绕过登录、验证码、风控或隐藏接口。
 
+## 新方向：HR Browser Agent
+
+下一阶段会把项目从“采集脚本”升级成“用户本机 HR 浏览器操作 agent”：用户和 OpenClaw HR agent 对话，agent 通过本机 FastAPI service 控制可见 Chrome，完成 BOSS 招聘者登录、发 JD、搜索候选人等操作。
+
+设计文档：
+
+- [HR Browser Agent Design](docs/hr_browser_agent_design.md)
+- [OpenClaw HR Agent Skill](docs/openclaw_hr_agent_skill.md)
+
+本机启动：
+
+```bash
+npm run hr:start
+```
+
+如果由 Hermes/OpenClaw agent 自动启动，请用后台模式：
+
+```bash
+npm run hr:daemon
+```
+
+边界不变：验证码、App 安全确认和平台验证必须由用户本人完成；系统只负责打开页面、点击、填表、等待和识别状态。
+
 ## 目标边界
 
 - 读取 HR 当前可见的搜索结果卡片。

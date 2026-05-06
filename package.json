@@ -12,6 +12,9 @@
     "capture:jobs": ".venv/bin/python python/boss_jobs_cdp_capture.py",
     "org:intel": ".venv/bin/python python/org_intel_agent.py",
     "org:service": "PYTHONPATH=python .venv/bin/uvicorn org_intel_service:app --host 127.0.0.1 --port 8787",
+    "hr:start": "./scripts/start_boss_hr_agent.sh",
+    "hr:daemon": "./scripts/start_boss_hr_agent_daemon.sh",
+    "hr:service": "PYTHONPATH=python .venv/bin/uvicorn boss_hr_browser_agent:app --host 127.0.0.1 --port 8790",
     "report:org": ".venv/bin/python python/org_report.py",
     "test:python": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "test": "node --test tests/*.test.js"
