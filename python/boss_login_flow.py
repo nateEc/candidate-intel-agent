@@ -79,16 +79,22 @@ READ_LOGIN_STATE_JS = r"""
 
 CLICK_RECRUITER_TAB_JS = r"""
 () => {
-  const clicked = clickByText("我要招聘");
-  return { clicked };
+  const target = findByText("我要招聘");
+  if (!target) return { ok: false, reason: "recruiter-tab-missing" };
+  target.scrollIntoView({ block: "center", inline: "center" });
+  const rect = target.getBoundingClientRect();
+  return {
+    ok: true,
+    reason: "",
+    click: {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    }
+  };
 
-  function clickByText(label) {
+  function findByText(label) {
     const nodes = [...document.querySelectorAll("button, a, span, div, li")].filter(visible);
-    const exact = nodes.find((node) => normalize(node.textContent) === label);
-    if (!exact) return false;
-    exact.scrollIntoView({ block: "center", inline: "center" });
-    exact.click();
-    return true;
+    return nodes.find((node) => normalize(node.textContent) === label) || null;
   }
 
   function visible(el) {
@@ -338,14 +344,31 @@ def start_recruiter_login(client: CdpClient) -> dict[str, Any]:
     if state["status"] in ("logged_in", "waiting_app_security_confirm", "maybe_switch_to_recruiter"):
         return state
 
-    snapshot = client.evaluate(READ_LOGIN_STATE_JS) or {}
-    if snapshot.get("has_recruiter_tab"):
-        client.evaluate(CLICK_RECRUITER_TAB_JS)
-        time.sleep(0.5)
+    click_recruiter_tab_if_available(client)
     return read_login_state(client)
 
 
+def click_recruiter_tab_if_available(client: CdpClient) -> bool:
+    snapshot = client.evaluate(READ_LOGIN_STATE_JS) or {}
+    if not snapshot.get("has_recruiter_tab"):
+        return False
+
+    result = client.evaluate(CLICK_RECRUITER_TAB_JS) or {}
+    if not result.get("ok"):
+        return False
+
+    click_point = result.get("click") or {}
+    try:
+        client.click(float(click_point["x"]), float(click_point["y"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    time.sleep(0.6)
+    return True
+
+
 def send_sms_code(client: CdpClient, phone: str) -> dict[str, Any]:
+    click_recruiter_tab_if_available(client)
     result = client.evaluate(SEND_CODE_JS, phone) or {}
     if not result.get("ok"):
         return response("needs_manual", f"发送验证码失败：{result.get('reason') or 'unknown'}")
