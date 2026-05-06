@@ -10,6 +10,7 @@
 
 - [HR Browser Agent Design](docs/hr_browser_agent_design.md)
 - [OpenClaw HR Agent Skill](docs/openclaw_hr_agent_skill.md)
+- [HR Companion Distribution](docs/hr_companion_distribution.md)
 
 本机启动：
 
@@ -21,6 +22,21 @@ npm run hr:start
 
 ```bash
 npm run hr:daemon
+```
+
+面向最终用户的轻量安装入口：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash
+```
+
+安装后会提供本机 CLI：
+
+```bash
+~/Library/Application\ Support/BossHrAgent/service/bin/boss-hr-agent status
+~/Library/Application\ Support/BossHrAgent/service/bin/boss-hr-agent start
+~/Library/Application\ Support/BossHrAgent/service/bin/boss-hr-agent stop
+~/Library/Application\ Support/BossHrAgent/service/bin/boss-hr-agent doctor
 ```
 
 边界不变：验证码、App 安全确认和平台验证必须由用户本人完成；系统只负责打开页面、点击、填表、等待和识别状态。

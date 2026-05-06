@@ -8,6 +8,7 @@ data/
 data-corrected/
 data-python/
 org-intel/
+dist/
 boss_filters.json
 boss_jobs_filters.json
 *.log

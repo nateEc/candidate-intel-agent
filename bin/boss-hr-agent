@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_HOME="${HOME}/Library/Application Support/BossHrAgent"
+
+export BOSS_HR_AGENT_HOME="${BOSS_HR_AGENT_HOME:-${DEFAULT_HOME}}"
+export HR_AGENT_HOST="${HR_AGENT_HOST:-127.0.0.1}"
+export HR_AGENT_PORT="${HR_AGENT_PORT:-8790}"
+export HR_AGENT_CDP_PORT="${HR_AGENT_CDP_PORT:-9240}"
+export HR_AGENT_CDP_URL="${HR_AGENT_CDP_URL:-http://127.0.0.1:${HR_AGENT_CDP_PORT}}"
+export HR_AGENT_CHROME_PROFILE="${HR_AGENT_CHROME_PROFILE:-${BOSS_HR_AGENT_HOME}/chrome-profile}"
+export HR_AGENT_LOG="${HR_AGENT_LOG:-${BOSS_HR_AGENT_HOME}/logs/service.log}"
+export HR_AGENT_PID_FILE="${HR_AGENT_PID_FILE:-${BOSS_HR_AGENT_HOME}/run/service.pid}"
+export HR_AGENT_START_URL="${HR_AGENT_START_URL:-https://www.zhipin.com/web/user/?ka=header-login}"
+
+health_url="http://${HR_AGENT_HOST}:${HR_AGENT_PORT}/health"
+
+usage() {
+  cat <<'EOF'
+Usage: boss-hr-agent <command>
+
+Commands:
+  start         Install Python deps if needed, then start the local service in background.
+  stop          Stop the local service process started by this CLI.
+  status        Print service health if running.
+  doctor        Check local prerequisites and service paths.
+  logs          Tail the service log.
+  install-deps  Create .venv and install lightweight service dependencies.
+EOF
+}
+
+ensure_dirs() {
+  mkdir -p "${BOSS_HR_AGENT_HOME}/logs" "${BOSS_HR_AGENT_HOME}/run" "${HR_AGENT_CHROME_PROFILE}"
+}
+
+install_deps() {
+  ensure_dirs
+  if [ ! -x "${SERVICE_DIR}/.venv/bin/python" ]; then
+    python3 -m venv "${SERVICE_DIR}/.venv"
+  fi
+  "${SERVICE_DIR}/.venv/bin/python" -m pip install --upgrade pip >/dev/null
+  "${SERVICE_DIR}/.venv/bin/pip" install -r "${SERVICE_DIR}/requirements-hr-agent.txt"
+}
+
+start_service() {
+  ensure_dirs
+  if curl -fsS "$health_url" >/dev/null 2>&1; then
+    echo "BOSS HR Browser Agent already running: ${health_url}"
+    return 0
+  fi
+  if [ ! -x "${SERVICE_DIR}/.venv/bin/uvicorn" ]; then
+    install_deps
+  fi
+  (cd "$SERVICE_DIR" && ./scripts/start_boss_hr_agent_daemon.sh)
+}
+
+stop_service() {
+  if [ ! -f "$HR_AGENT_PID_FILE" ]; then
+    echo "BOSS HR Browser Agent is not running: missing ${HR_AGENT_PID_FILE}"
+    return 0
+  fi
+  pid="$(cat "$HR_AGENT_PID_FILE" 2>/dev/null || true)"
+  if [ -z "$pid" ]; then
+    rm -f "$HR_AGENT_PID_FILE"
+    echo "BOSS HR Browser Agent is not running."
+    return 0
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+    echo "Stopped BOSS HR Browser Agent process ${pid}."
+  else
+    echo "BOSS HR Browser Agent process ${pid} is already stopped."
+  fi
+  rm -f "$HR_AGENT_PID_FILE"
+}
+
+status_service() {
+  if curl -fsS "$health_url"; then
+    echo
+    return 0
+  fi
+  echo "BOSS HR Browser Agent is not reachable: ${health_url}" >&2
+  return 1
+}
+
+doctor() {
+  echo "Service dir: ${SERVICE_DIR}"
+  echo "Home: ${BOSS_HR_AGENT_HOME}"
+  echo "Health URL: ${health_url}"
+  echo "Chrome profile: ${HR_AGENT_CHROME_PROFILE}"
+  echo "Log: ${HR_AGENT_LOG}"
+  echo "PID file: ${HR_AGENT_PID_FILE}"
+
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3: $(command -v python3)"
+  else
+    echo "python3: missing"
+  fi
+
+  chrome_app="${CHROME_APP:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [ -x "$chrome_app" ]; then
+    echo "Chrome: ${chrome_app}"
+  else
+    echo "Chrome: missing at ${chrome_app}"
+  fi
+
+  if [ -x "${SERVICE_DIR}/.venv/bin/uvicorn" ]; then
+    echo "uvicorn: installed"
+  else
+    echo "uvicorn: missing; run 'boss-hr-agent install-deps'"
+  fi
+
+  if curl -fsS "$health_url" >/dev/null 2>&1; then
+    echo "service: running"
+  else
+    echo "service: stopped"
+  fi
+}
+
+tail_logs() {
+  ensure_dirs
+  touch "$HR_AGENT_LOG"
+  tail -n 80 -f "$HR_AGENT_LOG"
+}
+
+command="${1:-}"
+case "$command" in
+  start)
+    start_service
+    ;;
+  stop)
+    stop_service
+    ;;
+  status)
+    status_service
+    ;;
+  doctor)
+    doctor
+    ;;
+  logs)
+    tail_logs
+    ;;
+  install-deps)
+    install_deps
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown command: ${command}" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

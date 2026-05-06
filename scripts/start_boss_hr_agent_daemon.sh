@@ -24,7 +24,7 @@ fi
 if [ ! -x ".venv/bin/uvicorn" ]; then
   echo "Missing .venv/bin/uvicorn. Run setup first:" >&2
   echo "  python3 -m venv .venv" >&2
-  echo "  .venv/bin/pip install -r requirements.txt" >&2
+  echo "  .venv/bin/pip install -r requirements-hr-agent.txt" >&2
   exit 1
 fi
 

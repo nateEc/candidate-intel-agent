@@ -28,14 +28,10 @@ Environment variable:
 BOSS_HR_AGENT_BASE_URL=http://127.0.0.1:8790
 ```
 
-The local service can be started by the agent if the host agent has terminal/shell execution.
+The local service can be installed and started by the agent if the host agent has terminal/shell execution.
 
 ```bash
-cd "/path/to/candidate-intel-agent"
-npm install
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-HR_AGENT_HOST=127.0.0.1 HR_AGENT_PORT=8790 ./scripts/start_boss_hr_agent.sh
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash
 ```
 
 Foreground shortcut for manual development:
@@ -50,11 +46,17 @@ Background shortcut for Hermes/OpenClaw:
 npm run hr:daemon
 ```
 
+Installed CLI path:
+
+```text
+~/Library/Application Support/BossHrAgent/service/bin/boss-hr-agent
+```
+
 Expected local browser:
 
 ```text
 Chrome CDP: http://127.0.0.1:9240
-Chrome profile: /tmp/boss-hr-agent-recruiter
+Chrome profile: ~/Library/Application Support/BossHrAgent/chrome-profile
 BOSS URL: https://www.zhipin.com/web/user/?ka=header-login
 ```
 
@@ -78,19 +80,21 @@ Before starting, call:
 GET /health
 ```
 
-If unavailable and terminal/shell execution is available, do not ask the user to start it manually. Start it yourself:
+If unavailable and terminal/shell execution is available, do not ask the user to start it manually.
+
+First, try the installed CLI:
 
 ```bash
-cd "$BOSS_HR_AGENT_PROJECT_DIR" && npm run hr:daemon
+"$HOME/Library/Application Support/BossHrAgent/service/bin/boss-hr-agent" start
+```
+
+If the CLI is missing, install and start the local companion service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash
 ```
 
 Then poll `GET /health` every second for up to 30 seconds. Continue to the login flow once health is available.
-
-If `BOSS_HR_AGENT_PROJECT_DIR` is not configured, use the installed skill's documented project path. For Nate's local test machine, the project path is:
-
-```text
-/Users/nathanshan/Documents/New project 2
-```
 
 Only ask the user to run a command if terminal/shell execution is unavailable or auto-start fails. In that case say:
 

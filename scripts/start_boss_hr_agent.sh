@@ -18,7 +18,7 @@ if [ ! -x "$CHROME_APP" ]; then
 fi
 
 if [ ! -x ".venv/bin/uvicorn" ]; then
-  echo "Missing .venv/bin/uvicorn. Run: .venv/bin/pip install -r requirements.txt" >&2
+  echo "Missing .venv/bin/uvicorn. Run: .venv/bin/pip install -r requirements-hr-agent.txt" >&2
   exit 1
 fi
 
