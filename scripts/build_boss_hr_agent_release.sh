@@ -21,6 +21,7 @@ mkdir -p "${PACKAGE_ROOT}/bin" "${PACKAGE_ROOT}/python" "${PACKAGE_ROOT}/scripts
 cp bin/boss-hr-agent "${PACKAGE_ROOT}/bin/"
 cp requirements-hr-agent.txt "${PACKAGE_ROOT}/"
 cp python/boss_hr_browser_agent.py "${PACKAGE_ROOT}/python/"
+cp python/boss_job_publish_flow.py "${PACKAGE_ROOT}/python/"
 cp python/boss_login_flow.py "${PACKAGE_ROOT}/python/"
 cp python/boss_hr_relay_connector.py "${PACKAGE_ROOT}/python/"
 cp python/boss_cdp_capture.py "${PACKAGE_ROOT}/python/"
