@@ -86,6 +86,7 @@ else
 fi
 copy_required "${SOURCE_ROOT}/python/boss_hr_browser_agent.py" "${staging}/python/"
 copy_required "${SOURCE_ROOT}/python/boss_login_flow.py" "${staging}/python/"
+copy_required "${SOURCE_ROOT}/python/boss_hr_relay_connector.py" "${staging}/python/"
 copy_required "${SOURCE_ROOT}/python/boss_cdp_capture.py" "${staging}/python/"
 copy_required "${SOURCE_ROOT}/python/boss_parse.py" "${staging}/python/"
 copy_required "${SOURCE_ROOT}/scripts/start_boss_hr_agent.sh" "${staging}/scripts/"

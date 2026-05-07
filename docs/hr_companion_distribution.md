@@ -78,6 +78,7 @@ The package includes only:
 - `requirements-hr-agent.txt`
 - `python/boss_hr_browser_agent.py`
 - `python/boss_login_flow.py`
+- `python/boss_hr_relay_connector.py`
 - `python/boss_cdp_capture.py`
 - `python/boss_parse.py`
 - `scripts/start_boss_hr_agent.sh`

@@ -22,6 +22,7 @@ Usage: boss-hr-agent <command>
 
 Commands:
   start         Install Python deps if needed, then start the local service in background.
+  connect       Connect this machine to a cloud relay for cloud-hosted agents.
   stop          Stop the local service process started by this CLI.
   status        Print service health if running.
   doctor        Check local prerequisites and service paths.
@@ -53,6 +54,12 @@ start_service() {
     install_deps
   fi
   (cd "$SERVICE_DIR" && ./scripts/start_boss_hr_agent_daemon.sh)
+}
+
+connect_relay() {
+  start_service
+  export PYTHONPATH="${SERVICE_DIR}/python${PYTHONPATH:+:${PYTHONPATH}}"
+  exec "${SERVICE_DIR}/.venv/bin/python" "${SERVICE_DIR}/python/boss_hr_relay_connector.py" "$@"
 }
 
 stop_service() {
@@ -128,6 +135,10 @@ command="${1:-}"
 case "$command" in
   start)
     start_service
+    ;;
+  connect)
+    shift
+    connect_relay "$@"
     ;;
   stop)
     stop_service

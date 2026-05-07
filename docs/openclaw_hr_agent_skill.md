@@ -28,6 +28,37 @@ Environment variable:
 BOSS_HR_AGENT_BASE_URL=http://127.0.0.1:8790
 ```
 
+If the HR agent runs in the cloud, do not call the user's `127.0.0.1`. Use relay mode.
+
+Cloud relay environment variables:
+
+```text
+BOSS_HR_RELAY_BASE_URL=https://relay.example.com
+BOSS_HR_RELAY_SESSION_ID=<user-session-id>
+BOSS_HR_RELAY_TOKEN=<relay-token>
+```
+
+In relay mode, replace local endpoints with:
+
+```text
+<BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>/...
+```
+
+and include:
+
+```http
+x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
+```
+
+The user's Mac must run the local connector:
+
+```bash
+"$HOME/Library/Application Support/BossHrAgent/service/bin/boss-hr-agent" connect \
+  --relay-url "$BOSS_HR_RELAY_BASE_URL" \
+  --session-id "$BOSS_HR_RELAY_SESSION_ID" \
+  --token "$BOSS_HR_RELAY_TOKEN"
+```
+
 The local service can be installed and started by the agent if the host agent has terminal/shell execution.
 
 ```bash
@@ -74,13 +105,25 @@ BOSS URL: https://www.zhipin.com/web/user/?ka=header-login
 
 ### 1. Health Check
 
-Before starting, call:
+Before starting in local-agent mode, call:
 
 ```http
 GET /health
 ```
 
-If unavailable and terminal/shell execution is available, do not ask the user to start it manually.
+Before starting in cloud-agent relay mode, call:
+
+```http
+GET /v1/sessions/<session-id>/status
+```
+
+If the relay returns `404 session not connected`, the user has not connected their local companion yet. Say:
+
+```text
+我还没有看到你本机的 BOSS 连接器在线。请先打开本机 companion 并连接这次会话，连接后我会继续登录流程。
+```
+
+In local-agent mode, if unavailable and terminal/shell execution is available, do not ask the user to start it manually.
 
 First, try the installed CLI:
 

@@ -11,6 +11,7 @@
 - [HR Browser Agent Design](docs/hr_browser_agent_design.md)
 - [OpenClaw HR Agent Skill](docs/openclaw_hr_agent_skill.md)
 - [HR Companion Distribution](docs/hr_companion_distribution.md)
+- [HR Cloud Relay](docs/hr_cloud_relay_design.md)
 
 本机启动：
 
