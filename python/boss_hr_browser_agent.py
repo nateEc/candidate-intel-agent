@@ -10,9 +10,10 @@ from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from boss_cdp_capture import CdpClient, request_json
+from boss_job_publish_flow import close_job, fill_job_publish_draft, read_job_publish_state, start_job_publish, submit_job_publish
 from boss_login_flow import (
     LOGIN_URL,
     redact_phone,
@@ -63,6 +64,35 @@ class SubmitCodeRequest(BaseModel):
 
 class NavigateRequest(BaseModel):
     target: str = "talent_search"
+
+
+class JobPublishDraftRequest(BaseModel):
+    recruitment_type: str = "社招全职"
+    job_title: str = Field(min_length=1, max_length=120)
+    job_description: str = Field(min_length=1, max_length=5000)
+    overseas_status: str = "境内岗位"
+    job_type: str | None = None
+    experience: str | None = None
+    education: str | None = None
+    salary_min_k: int | None = Field(default=None, ge=1, le=500)
+    salary_max_k: int | None = Field(default=None, ge=1, le=500)
+    salary_months: int | None = Field(default=None, ge=1, le=36)
+    keywords: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_salary_order(self) -> "JobPublishDraftRequest":
+        if self.salary_min_k is not None and self.salary_max_k is not None and self.salary_max_k < self.salary_min_k:
+            raise ValueError("salary_max_k must be greater than or equal to salary_min_k")
+        return self
+
+
+class JobPublishSubmitRequest(BaseModel):
+    confirm: bool = False
+
+
+class JobCloseRequest(BaseModel):
+    confirm: bool = False
+    job_title: str | None = Field(default=None, max_length=120)
 
 
 @app.get("/health")
@@ -126,6 +156,31 @@ def login_status() -> dict[str, Any]:
 @app.post("/v1/boss/navigate")
 def navigate(payload: NavigateRequest) -> dict[str, Any]:
     return run_with_client(lambda client: navigate_to(client, payload.target))
+
+
+@app.post("/v1/boss/job/publish/start")
+def job_publish_start() -> dict[str, Any]:
+    return run_with_client(start_job_publish)
+
+
+@app.get("/v1/boss/job/publish/status")
+def job_publish_status() -> dict[str, Any]:
+    return run_with_client(read_job_publish_state)
+
+
+@app.post("/v1/boss/job/publish/draft")
+def job_publish_draft(payload: JobPublishDraftRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: fill_job_publish_draft(client, payload.model_dump()))
+
+
+@app.post("/v1/boss/job/publish/submit")
+def job_publish_submit(payload: JobPublishSubmitRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: submit_job_publish(client, payload.confirm))
+
+
+@app.post("/v1/boss/job/close")
+def job_close(payload: JobCloseRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: close_job(client, payload.model_dump()))
 
 
 def run_with_client(action: Any) -> dict[str, Any]:

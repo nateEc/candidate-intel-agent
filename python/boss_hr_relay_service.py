@@ -165,6 +165,43 @@ async def boss_navigate(
     return await proxy_json(session_id, "POST", "/v1/boss/navigate", payload, x_boss_relay_token)
 
 
+@app.post("/v1/sessions/{session_id}/boss/job/publish/start")
+async def job_publish_start(session_id: str, x_boss_relay_token: str | None = Header(default=None)) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/publish/start", {}, x_boss_relay_token)
+
+
+@app.get("/v1/sessions/{session_id}/boss/job/publish/status")
+async def job_publish_status(session_id: str, x_boss_relay_token: str | None = Header(default=None)) -> dict[str, Any]:
+    return await proxy_json(session_id, "GET", "/v1/boss/job/publish/status", None, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/job/publish/draft")
+async def job_publish_draft(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/publish/draft", payload, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/job/publish/submit")
+async def job_publish_submit(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/publish/submit", payload, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/job/close")
+async def job_close(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/close", payload, x_boss_relay_token)
+
+
 async def proxy_json(
     session_id: str,
     method: str,
