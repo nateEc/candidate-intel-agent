@@ -1174,10 +1174,19 @@ def close_job(client: CdpClient, payload: dict[str, Any]) -> dict[str, Any]:
             job_title=job_title or None,
         )
 
-    client.evaluate("(url) => { location.href = url; return { ok: true }; }", JOB_LIST_URL)
-    time.sleep(1)
+    current_url = client.evaluate("() => location.href") or ""
+    if "/web/chat/job/list" not in str(current_url):
+        client.evaluate("(url) => { location.href = url; return { ok: true }; }", JOB_LIST_URL)
+        time.sleep(1)
 
-    click_result = client.evaluate(GET_JOB_CLOSE_POINT_JS, {"job_title": job_title}) or {}
+    click_result: dict[str, Any] = {}
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        click_result = client.evaluate(GET_JOB_CLOSE_POINT_JS, {"job_title": job_title}) or {}
+        if click_result.get("ok"):
+            break
+        time.sleep(0.5)
+
     if not click_result.get("ok"):
         return response(
             "needs_manual",
