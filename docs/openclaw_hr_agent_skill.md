@@ -9,6 +9,7 @@ Examples:
 - "帮我登录 BOSS 招聘者账号"
 - "打开 BOSS，帮我进入招聘者身份"
 - "帮我发一个 JD"
+- "发布一个后端工程师岗位"
 - "帮我去人才库搜后端工程师"
 - "帮我看一下这个候选人的在线简历"
 
@@ -417,12 +418,169 @@ After login, route user intents to structured local actions:
 | User intent | Local endpoint |
 | --- | --- |
 | "进入人才库" | `POST /v1/boss/navigate {"target":"talent_search"}` |
-| "发布 JD" | `POST /v1/boss/action/post-job` |
+| "发布 JD" / "发布职位" | W01 job publish endpoints below |
+| "关闭职位" / "下架职位" | `POST /v1/boss/job/close` |
 | "搜索候选人" | `POST /v1/boss/action/search-candidates` |
 | "打开候选人简历" | `POST /v1/boss/action/open-candidate` |
 | "保存这个候选人" | `POST /v1/boss/action/save-visible-candidate` |
 
-For the first MVP, only login and navigation are required. Job posting and candidate workflows can be added after login is stable.
+## W01 Job Publish
+
+Use this workflow when the user wants to create a new BOSS job post.
+
+High-impact rule:
+
+- Filling the form is allowed after the user provides the job details.
+- Do not submit/publish the job until the user explicitly confirms the filled draft.
+- If the user gives vague details, ask for missing fields before filling the draft.
+
+Required fields:
+
+```json
+{
+  "job_title": "后端工程师",
+  "job_description": "岗位职责和任职要求...",
+  "recruitment_type": "社招全职",
+  "overseas_status": "境内岗位",
+  "job_type": "其他后端开发",
+  "experience": "3-5年",
+  "education": "本科",
+  "salary_min_k": 25,
+  "salary_max_k": 50,
+  "salary_months": 16
+}
+```
+
+Optional:
+
+```json
+{
+  "keywords": ["Python", "Go", "后端"]
+}
+```
+
+Allowed common values:
+
+- `recruitment_type`: `社招全职`, `应届校园招聘`, `实习生招聘`, `兼职招聘`
+- `overseas_status`: `境内岗位`, `长期驻境外`, `短期境外出差`
+- `experience`: `不限`, `1年以内`, `1-3年`, `3-5年`, `5-10年`, `10年以上`
+- `education`: `不限`, `初中及以下`, `中专/中技`, `高中`, `大专`, `本科`, `硕士`, `博士`
+
+Step 1, open the job publish page:
+
+```http
+POST /v1/boss/job/publish/start
+```
+
+Expected response:
+
+```json
+{
+  "status": "job_publish_form_ready"
+}
+```
+
+Step 2, fill draft:
+
+```http
+POST /v1/boss/job/publish/draft
+```
+
+Payload:
+
+```json
+{
+  "recruitment_type": "社招全职",
+  "job_title": "后端工程师",
+  "job_description": "负责后端服务设计、开发和稳定性建设...",
+  "overseas_status": "境内岗位",
+  "job_type": "其他后端开发",
+  "experience": "3-5年",
+  "education": "本科",
+  "salary_min_k": 25,
+  "salary_max_k": 50,
+  "salary_months": 16
+}
+```
+
+If response is:
+
+```json
+{
+  "status": "job_publish_draft_filled",
+  "requires_confirmation": true
+}
+```
+
+Summarize the draft and ask:
+
+```text
+我已经把岗位草稿填好了。请你在浏览器里快速确认一下职位名称、描述、类型、经验、学历和薪资。如果确认发布，请回复“确认发布这个职位”。
+```
+
+If response is `needs_manual`, ask the user to inspect the browser and do not publish.
+
+Step 3, submit only after explicit confirmation:
+
+```http
+POST /v1/boss/job/publish/submit
+```
+
+Payload:
+
+```json
+{
+  "confirm": true
+}
+```
+
+If the user has not explicitly confirmed, do not call submit.
+
+Treat `job_publish_submitted` as successful only when the service returns it after the page leaves the edit form or shows a success state. If submit returns `needs_manual`, tell the user the service clicked the real bottom `发布` button but BOSS still requires page-side validation or confirmation; do not claim the job was published.
+
+## W01 Close Job
+
+Use this workflow when the user wants to close or take down an active BOSS job.
+
+High-impact rule:
+
+- Closing a job is destructive for the active recruiting workflow.
+- Ask which job to close if there is ambiguity.
+- Only call the endpoint with `confirm: true` after the user explicitly confirms the exact job title.
+
+Close by title:
+
+```http
+POST /v1/boss/job/close
+```
+
+Payload:
+
+```json
+{
+  "job_title": "AI工程师",
+  "confirm": true
+}
+```
+
+If the user says to close the currently visible open job and there is no ambiguity, `job_title` may be omitted:
+
+```json
+{
+  "confirm": true
+}
+```
+
+Expected success:
+
+```json
+{
+  "status": "job_closed",
+  "job_title": "AI工程师"
+}
+```
+
+If response is `confirmation_required`, ask the user to confirm. If response is `needs_manual`, do not claim the job was closed; tell the user BOSS still needs page-side inspection.
 
 ## Conversation Example
 
