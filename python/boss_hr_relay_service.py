@@ -193,6 +193,33 @@ async def job_publish_submit(
     return await proxy_json(session_id, "POST", "/v1/boss/job/publish/submit", payload, x_boss_relay_token)
 
 
+@app.post("/v1/sessions/{session_id}/boss/job/update/start")
+async def job_update_start(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/update/start", payload, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/job/update/draft")
+async def job_update_draft(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/update/draft", payload, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/job/update/submit")
+async def job_update_submit(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/job/update/submit", payload, x_boss_relay_token)
+
+
 @app.post("/v1/sessions/{session_id}/boss/job/close")
 async def job_close(
     session_id: str,

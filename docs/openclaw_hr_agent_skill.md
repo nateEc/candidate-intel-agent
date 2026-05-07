@@ -419,6 +419,7 @@ After login, route user intents to structured local actions:
 | --- | --- |
 | "进入人才库" | `POST /v1/boss/navigate {"target":"talent_search"}` |
 | "发布 JD" / "发布职位" | W01 job publish endpoints below |
+| "更新职位" / "修改 JD" | W02 job update endpoints below |
 | "关闭职位" / "下架职位" | `POST /v1/boss/job/close` |
 | "搜索候选人" | `POST /v1/boss/action/search-candidates` |
 | "打开候选人简历" | `POST /v1/boss/action/open-candidate` |
@@ -537,6 +538,88 @@ Payload:
 If the user has not explicitly confirmed, do not call submit.
 
 Treat `job_publish_submitted` as successful only when the service returns it after the page leaves the edit form or shows a success state. If submit returns `needs_manual`, tell the user the service clicked the real bottom `发布` button but BOSS still requires page-side validation or confirmation; do not claim the job was published.
+
+## W02 Job Update
+
+Use this workflow when the user wants to edit an existing BOSS job.
+
+High-impact rule:
+
+- Ask which job title to edit before opening the edit form.
+- Only update editable fields. BOSS locks fields such as recruitment type, job title, job type, company, and work city after creation.
+- Do not click `保存并发布` until the user explicitly confirms the edited draft.
+
+Step 1, open the existing job edit form:
+
+```http
+POST /v1/boss/job/update/start
+```
+
+Payload:
+
+```json
+{
+  "job_title": "AI工程师"
+}
+```
+
+Expected response:
+
+```json
+{
+  "status": "job_update_form_ready"
+}
+```
+
+Step 2, fill only the fields that should change:
+
+```http
+POST /v1/boss/job/update/draft
+```
+
+Payload example:
+
+```json
+{
+  "job_description": "更新后的岗位职责和任职要求...",
+  "experience": "3-5年",
+  "education": "本科",
+  "salary_min_k": 25,
+  "salary_max_k": 35,
+  "salary_months": 12
+}
+```
+
+If response is:
+
+```json
+{
+  "status": "job_update_draft_filled",
+  "requires_confirmation": true
+}
+```
+
+Summarize what changed and ask:
+
+```text
+我已经把岗位更新草稿填好了。请你在浏览器里确认一下变更项。如果确认保存并发布，请回复“确认保存并发布这个职位更新”。
+```
+
+Step 3, submit only after explicit confirmation:
+
+```http
+POST /v1/boss/job/update/submit
+```
+
+Payload:
+
+```json
+{
+  "confirm": true
+}
+```
+
+Treat `job_update_submitted` as successful only when the service returns it. If the response is `needs_manual`, tell the user BOSS still requires page-side validation or confirmation; do not claim the update was saved.
 
 ## W01 Close Job
 

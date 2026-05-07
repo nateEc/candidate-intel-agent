@@ -38,6 +38,9 @@ POST /v1/boss/job/publish/start
 POST /v1/boss/job/publish/draft
 GET  /v1/boss/job/publish/status
 POST /v1/boss/job/publish/submit
+POST /v1/boss/job/update/start
+POST /v1/boss/job/update/draft
+POST /v1/boss/job/update/submit
 ```
 
 Cloud relay mode:
@@ -47,6 +50,9 @@ POST /v1/sessions/<session-id>/boss/job/publish/start
 POST /v1/sessions/<session-id>/boss/job/publish/draft
 GET  /v1/sessions/<session-id>/boss/job/publish/status
 POST /v1/sessions/<session-id>/boss/job/publish/submit
+POST /v1/sessions/<session-id>/boss/job/update/start
+POST /v1/sessions/<session-id>/boss/job/update/draft
+POST /v1/sessions/<session-id>/boss/job/update/submit
 ```
 
 ### Workflow
@@ -68,6 +74,57 @@ Do not publish if:
 - the user asks for a prohibited or discriminatory job description
 
 The agent may help rewrite the description before filling the form, but must not include contact details, discriminatory language, or platform-prohibited content.
+
+## W02 岗位更新
+
+Purpose: edit an existing BOSS job by opening it from the job list and filling editable fields.
+
+Execution location: BOSS site, through the local HR Browser Agent or cloud relay.
+
+Human confirmation: required before `保存并发布`.
+
+### Input Contract
+
+Open edit form:
+
+- `job_title`
+
+Editable draft fields:
+
+- `job_description`
+- `overseas_status`
+- `experience`
+- `education`
+- `salary_min_k`
+- `salary_max_k`
+- `salary_months`
+- `keywords`
+
+BOSS locks these fields after creation; do not promise to edit them:
+
+- recruitment type
+- job title
+- job type
+- company
+- work city
+
+### Workflow
+
+1. Ask which job to update.
+2. Call `update/start` with `{ "job_title": "..." }`.
+3. Call `update/draft` with only the fields to change.
+4. If the response is `job_update_draft_filled`, summarize the changed fields and ask for confirmation.
+5. Only after explicit confirmation, call `update/submit` with `{ "confirm": true }`.
+6. Treat `job_update_submitted` as successful only when returned by the service. If submit returns `needs_manual`, explain that BOSS still requires page-side validation or confirmation and ask the user to inspect the browser.
+
+### Safety
+
+Do not save and publish if:
+
+- the draft response is `needs_manual`
+- the user has not explicitly confirmed
+- required update intent is ambiguous
+- the user asks to add prohibited or discriminatory content
 
 ## W01/W02 关闭职位
 

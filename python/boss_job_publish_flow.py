@@ -319,7 +319,7 @@ GET_JOB_PUBLISH_CONFIRM_POINT_JS = r"""
   return { ok: false, reason: "confirm-button-not-found" };
 
   function findConfirmButton(scope) {
-    const labels = ["同意并继续发布职位", "确认发布", "继续发布", "确定"];
+    const labels = ["同意并继续发布职位", "确认发布", "确认保存", "保存并发布", "继续发布", "确定"];
     const nodes = [...scope.document.querySelectorAll("button, a, span, div")]
       .filter((node) => visible(scope, node))
       .map((node) => {
@@ -604,6 +604,225 @@ GET_JOB_CLOSE_CONFIRM_POINT_JS = r"""
 """
 
 
+GET_JOB_ROW_ACTION_POINT_JS = r"""
+(payload) => {
+  const jobTitle = normalize((payload && payload.job_title) || "");
+  const actionLabel = normalize((payload && payload.action_label) || "编辑");
+  for (const scope of getScopes()) {
+    const target = findRowAction(scope, jobTitle, actionLabel);
+    if (target) {
+      target.button.scrollIntoView({ block: "center", inline: "center" });
+      const rect = target.button.getBoundingClientRect();
+      return {
+        ok: true,
+        label: normalize(target.button.textContent),
+        job_title: target.job_title,
+        row_text: target.row_text,
+        click: {
+          x: scope.offset.x + rect.left + rect.width / 2,
+          y: scope.offset.y + rect.top + rect.height / 2
+        }
+      };
+    }
+  }
+  return {
+    ok: false,
+    reason: "job-row-action-not-found",
+    job_title: jobTitle,
+    action_label: actionLabel
+  };
+
+  function findRowAction(scope, title, label) {
+    const rows = findJobRows(scope, title);
+    for (const item of rows) {
+      const button = findActionButton(scope, item.node, label);
+      if (button) {
+        return {
+          button,
+          row_text: item.text,
+          job_title: extractJobTitle(item.text)
+        };
+      }
+    }
+    return null;
+  }
+
+  function findJobRows(scope, title) {
+    return [...scope.document.querySelectorAll("li, tr, article, section, div")]
+      .filter((node) => visible(scope, node))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          node,
+          rect,
+          text: normalize(node.textContent),
+          area: rect.width * rect.height,
+          depth: getDepth(node)
+        };
+      })
+      .filter((item) => {
+        if (title && !item.text.includes(title)) return false;
+        if (!item.text.includes("编辑")) return false;
+        if (!item.text.includes("全职") && !item.text.includes("兼职") && !item.text.includes("实习")) return false;
+        if (item.rect.width < 240 || item.rect.height < 40) return false;
+        if (item.rect.height > Math.max(260, scope.window.innerHeight * 0.4)) return false;
+        if (item.rect.width > scope.window.innerWidth * 0.96 && item.rect.height > 180) return false;
+        return Boolean(findActionButton(scope, item.node, "编辑"));
+      })
+      .sort((left, right) => {
+        const leftExact = title && extractJobTitle(left.text) === title ? 0 : 1;
+        const rightExact = title && extractJobTitle(right.text) === title ? 0 : 1;
+        return leftExact - rightExact || left.area - right.area || right.depth - left.depth;
+      });
+  }
+
+  function findActionButton(scope, row, label) {
+    const nodes = [...row.querySelectorAll("button, a, span, div")]
+      .filter((node) => visible(scope, node))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          node,
+          rect,
+          text: normalize(node.textContent),
+          cls: String(node.className || "").toLowerCase(),
+          area: rect.width * rect.height
+        };
+      })
+      .filter((item) => {
+        if (item.text !== label) return false;
+        if (item.rect.width > 90 || item.rect.height > 60) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftButtonish = isButtonish(left.node) ? 0 : 1;
+        const rightButtonish = isButtonish(right.node) ? 0 : 1;
+        return leftButtonish - rightButtonish || right.rect.left - left.rect.left || left.area - right.area;
+      });
+    return nodes[0]?.node || null;
+  }
+
+  function extractJobTitle(text) {
+    const clean = normalize(text);
+    const beforeStats = clean.split(/\s+\d+\s+看过我\s+/)[0] || clean;
+    return normalize(beforeStats.split(/\s+/)[0] || "");
+  }
+
+  function isButtonish(node) {
+    const cls = String(node.className || "").toLowerCase();
+    return node.tagName === "BUTTON" || cls.includes("button") || cls.includes("btn") || node.tagName === "A";
+  }
+
+  function getScopes() {
+    const scopes = [{ document, window, offset: { x: 0, y: 0 } }];
+    for (const frame of [...document.querySelectorAll("iframe")]) {
+      if (frame.contentDocument && frame.contentWindow) {
+        const rect = frame.getBoundingClientRect();
+        scopes.push({
+          document: frame.contentDocument,
+          window: frame.contentWindow,
+          offset: { x: rect.left, y: rect.top }
+        });
+      }
+    }
+    return scopes;
+  }
+
+  function getDepth(node) {
+    let depth = 0;
+    while (node && node.parentElement) {
+      depth += 1;
+      node = node.parentElement;
+    }
+    return depth;
+  }
+
+  function visible(scope, el) {
+    const rect = el.getBoundingClientRect();
+    const style = scope.window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  }
+
+  function normalize(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+}
+"""
+
+
+GET_JOB_UPDATE_SUBMIT_POINT_JS = r"""
+() => {
+  const scope = getJobScope();
+  const doc = scope.document;
+  const target = findSubmitButton();
+  if (!target) return { ok: false, reason: "update-submit-button-not-found" };
+  target.scrollIntoView({ block: "center", inline: "center" });
+  const rect = target.getBoundingClientRect();
+  return {
+    ok: true,
+    label: normalize(target.textContent),
+    class_name: String(target.className || ""),
+    click: {
+      x: scope.offset.x + rect.left + rect.width / 2,
+      y: scope.offset.y + rect.top + rect.height / 2
+    }
+  };
+
+  function findSubmitButton() {
+    const labels = ["保存并发布", "保存", "确认发布"];
+    const buttons = [
+      ...doc.querySelectorAll("button.btn-sure-v2"),
+      ...doc.querySelectorAll(".btn-publish button"),
+      ...doc.querySelectorAll("button")
+    ]
+      .filter(visible)
+      .filter((node) => !node.disabled && !node.getAttribute("disabled"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { node, text: normalize(node.textContent), area: rect.width * rect.height };
+      })
+      .filter((item) => labels.includes(item.text))
+      .sort((left, right) => {
+        const leftInFooter = left.node.closest(".btn-publish, .form-btn, .fixed-footer") ? 0 : 1;
+        const rightInFooter = right.node.closest(".btn-publish, .form-btn, .fixed-footer") ? 0 : 1;
+        return leftInFooter - rightInFooter || labels.indexOf(left.text) - labels.indexOf(right.text) || left.area - right.area;
+      });
+    return buttons[0]?.node || null;
+  }
+
+  function visible(el) {
+    const rect = el.getBoundingClientRect();
+    const style = scope.window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  }
+
+  function normalize(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function getJobScope() {
+    const frame = [...document.querySelectorAll("iframe")]
+      .find((item) => item.src.includes("/web/frame/job/edit"));
+    if (frame && frame.contentDocument) {
+      const rect = frame.getBoundingClientRect();
+      return {
+        document: frame.contentDocument,
+        window: frame.contentWindow,
+        frameUrl: frame.src,
+        offset: { x: rect.left, y: rect.top }
+      };
+    }
+    return {
+      document,
+      window,
+      frameUrl: "",
+      offset: { x: 0, y: 0 }
+    };
+  }
+}
+"""
+
+
 FILL_JOB_PUBLISH_DRAFT_JS = r"""
 async (payload) => {
   const scope = getJobScope();
@@ -611,10 +830,17 @@ async (payload) => {
   const actions = [];
   const missing = [];
 
-  await clickChoice(payload.recruitment_type || "社招全职", "recruitment_type");
-  await setField("职位名称", payload.job_title, "job_title");
+  const updateMode = Boolean(payload.update_mode);
+  if (!updateMode || payload.recruitment_type) {
+    await clickChoice(payload.recruitment_type || "社招全职", "recruitment_type");
+  }
+  if (!updateMode || payload.job_title) {
+    await setField("职位名称", payload.job_title, "job_title");
+  }
   await setField("职位描述", payload.job_description, "job_description");
-  await clickChoice(payload.overseas_status || "境内岗位", "overseas_status");
+  if (!updateMode || payload.overseas_status) {
+    await clickChoice(payload.overseas_status || "境内岗位", "overseas_status");
+  }
   if (payload.job_type) {
     await selectDropdown("职位类型", payload.job_type, "job_type");
   }
@@ -626,6 +852,8 @@ async (payload) => {
   }
   if (payload.salary_min_k) {
     await selectDropdown("薪资范围", salaryLabel(payload.salary_min_k), "salary_min_k", { allowPrefix: true });
+  }
+  if (payload.salary_max_k || payload.salary_months) {
     await fillSalaryTail(payload.salary_max_k, payload.salary_months);
   }
   if (Array.isArray(payload.keywords)) {
@@ -634,11 +862,13 @@ async (payload) => {
   await dismissJobCategoryDialog();
 
   return {
-    ok: missing.length === 0,
-    status: missing.length === 0 ? "job_publish_draft_filled" : "needs_manual",
-    message: missing.length === 0
-      ? "岗位发布草稿已填写，请让用户确认后再发布。"
-      : "岗位发布草稿部分字段未能自动填写，请查看页面。",
+    ok: missing.length === 0 && actions.length > 0,
+    status: missing.length === 0 && actions.length > 0
+      ? (updateMode ? "job_update_draft_filled" : "job_publish_draft_filled")
+      : "needs_manual",
+    message: missing.length === 0 && actions.length > 0
+      ? (updateMode ? "岗位更新草稿已填写，请让用户确认后再保存并发布。" : "岗位发布草稿已填写，请让用户确认后再发布。")
+      : (actions.length === 0 ? "没有检测到可填写的岗位字段。" : "岗位草稿部分字段未能自动填写，请查看页面。"),
     actions,
     missing,
     current_url: location.href
@@ -1098,6 +1328,155 @@ def fill_job_publish_draft(client: CdpClient, payload: dict[str, Any]) -> dict[s
         missing=result.get("missing") or [],
         current_url=result.get("current_url"),
         requires_confirmation=True,
+    )
+
+
+def start_job_update(client: CdpClient, payload: dict[str, Any]) -> dict[str, Any]:
+    job_title = str(payload.get("job_title") or "").strip()
+    current_url = client.evaluate("() => location.href") or ""
+    if "/web/chat/job/list" not in str(current_url):
+        client.evaluate("(url) => { location.href = url; return { ok: true }; }", JOB_LIST_URL)
+        time.sleep(1)
+
+    click_result: dict[str, Any] = {}
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        click_result = client.evaluate(
+            GET_JOB_ROW_ACTION_POINT_JS,
+            {"job_title": job_title, "action_label": "编辑"},
+        ) or {}
+        if click_result.get("ok"):
+            break
+        time.sleep(0.5)
+
+    if not click_result.get("ok"):
+        return response(
+            "needs_manual",
+            "未能定位职位行里的“编辑”按钮，请查看职位管理页面。",
+            reason=click_result.get("reason"),
+            job_title=job_title or None,
+            current_url=read_job_publish_state(client).get("current_url"),
+        )
+
+    click_point = click_result.get("click") or {}
+    try:
+        client.click(float(click_point["x"]), float(click_point["y"]))
+    except (KeyError, TypeError, ValueError):
+        return response(
+            "needs_manual",
+            "未能点击职位行里的“编辑”按钮，请查看职位管理页面。",
+            job_title=click_result.get("job_title") or job_title or None,
+        )
+
+    state = wait_for_job_publish_form(client, time.time() + 10)
+    if state["status"] == "job_publish_form_ready":
+        return response(
+            "job_update_form_ready",
+            "岗位编辑表单已打开。",
+            job_title=click_result.get("job_title") or job_title or None,
+            current_url=state.get("current_url"),
+            page_title=state.get("page_title"),
+        )
+    return state
+
+
+def fill_job_update_draft(client: CdpClient, payload: dict[str, Any]) -> dict[str, Any]:
+    state = read_job_publish_state(client)
+    if state["status"] != "job_publish_form_ready":
+        return response(
+            "needs_manual",
+            "请先打开要更新的岗位编辑页。",
+            current_url=state.get("current_url"),
+        )
+    update_payload = {
+        key: value
+        for key, value in payload.items()
+        if key
+        in {
+            "job_description",
+            "overseas_status",
+            "experience",
+            "education",
+            "salary_min_k",
+            "salary_max_k",
+            "salary_months",
+            "keywords",
+        }
+        and value is not None
+    }
+    update_payload["update_mode"] = True
+    result = client.evaluate(FILL_JOB_PUBLISH_DRAFT_JS, update_payload) or {}
+    status = str(result.get("status") or "needs_manual")
+    message = str(result.get("message") or "岗位更新草稿填写完成状态未知。")
+    return response(
+        status,
+        message,
+        actions=result.get("actions") or [],
+        missing=result.get("missing") or [],
+        current_url=result.get("current_url"),
+        requires_confirmation=True,
+    )
+
+
+def submit_job_update(client: CdpClient, confirm: bool) -> dict[str, Any]:
+    if not confirm:
+        return response(
+            "confirmation_required",
+            "保存并发布岗位更新是高影响操作。请明确确认后再提交。",
+            required_confirmation=True,
+        )
+    state = read_job_publish_state(client)
+    if state["status"] != "job_publish_form_ready":
+        return state
+
+    click_result = client.evaluate(GET_JOB_UPDATE_SUBMIT_POINT_JS) or {}
+    if not click_result.get("ok"):
+        return response(
+            "needs_manual",
+            "未能定位底部“保存并发布”按钮，请查看浏览器。",
+            reason=click_result.get("reason"),
+        )
+
+    click_point = click_result.get("click") or {}
+    try:
+        client.click(float(click_point["x"]), float(click_point["y"]))
+    except (KeyError, TypeError, ValueError):
+        return response("needs_manual", "未能点击底部“保存并发布”按钮，请查看浏览器。")
+
+    time.sleep(1)
+    confirm_result = client.evaluate(GET_JOB_PUBLISH_CONFIRM_POINT_JS) or {}
+    if confirm_result.get("ok"):
+        confirm_point = confirm_result.get("click") or {}
+        try:
+            client.click(float(confirm_point["x"]), float(confirm_point["y"]))
+        except (KeyError, TypeError, ValueError):
+            return response(
+                "needs_manual",
+                "已点击保存并发布，但未能点击二次确认，请查看浏览器。",
+                clicked_label=click_result.get("label"),
+                confirm_label=confirm_result.get("label"),
+            )
+        time.sleep(1.5)
+    else:
+        time.sleep(1)
+
+    snapshot = client.evaluate(READ_JOB_PUBLISH_STATE_JS) or {}
+    text = str(snapshot.get("text") or "")
+    current_url = snapshot.get("url")
+    if not snapshot.get("has_edit_form") or "保存成功" in text or "发布成功" in text or "职位管理" in text:
+        return response(
+            "job_update_submitted",
+            "岗位更新请求已提交，请在 BOSS 页面确认结果。",
+            clicked_label=click_result.get("label"),
+            confirm_label=confirm_result.get("label") if confirm_result.get("ok") else None,
+            current_url=current_url,
+        )
+    return response(
+        "needs_manual",
+        "已点击保存并发布，但页面仍停留在岗位编辑页，可能还有校验错误或平台二次确认，请查看浏览器。",
+        clicked_label=click_result.get("label"),
+        confirm_label=confirm_result.get("label") if confirm_result.get("ok") else None,
+        current_url=current_url,
     )
 
 

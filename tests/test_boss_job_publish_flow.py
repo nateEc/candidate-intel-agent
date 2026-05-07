@@ -6,8 +6,8 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from python.boss_hr_browser_agent import JobCloseRequest, JobPublishDraftRequest
-from python.boss_job_publish_flow import close_job, read_job_publish_state, submit_job_publish
+from python.boss_hr_browser_agent import JobCloseRequest, JobPublishDraftRequest, JobUpdateDraftRequest
+from python.boss_job_publish_flow import close_job, read_job_publish_state, submit_job_publish, submit_job_update
 
 
 class FakeClient:
@@ -34,6 +34,12 @@ class BossJobPublishFlowTests(unittest.TestCase):
 
     def test_submit_requires_confirmation(self):
         state = submit_job_publish(FakeClient({}), confirm=False)
+
+        self.assertEqual(state["status"], "confirmation_required")
+        self.assertTrue(state["required_confirmation"])
+
+    def test_update_submit_requires_confirmation(self):
+        state = submit_job_update(FakeClient({}), confirm=False)
 
         self.assertEqual(state["status"], "confirmation_required")
         self.assertTrue(state["required_confirmation"])
@@ -67,6 +73,19 @@ class BossJobPublishFlowTests(unittest.TestCase):
                 salary_min_k=50,
                 salary_max_k=25,
             )
+
+    def test_update_draft_request_rejects_inverted_salary(self):
+        with self.assertRaises(ValidationError):
+            JobUpdateDraftRequest(
+                job_description="更新岗位描述",
+                salary_min_k=50,
+                salary_max_k=25,
+            )
+
+    def test_update_draft_request_accepts_salary_month_only_update(self):
+        request = JobUpdateDraftRequest(salary_months=14)
+
+        self.assertEqual(request.salary_months, 14)
 
     def test_draft_request_accepts_required_fields(self):
         request = JobPublishDraftRequest(

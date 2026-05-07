@@ -79,6 +79,10 @@ POST /v1/sessions/<session-id>/boss/job/publish/start
 POST /v1/sessions/<session-id>/boss/job/publish/draft
 GET  /v1/sessions/<session-id>/boss/job/publish/status
 POST /v1/sessions/<session-id>/boss/job/publish/submit
+POST /v1/sessions/<session-id>/boss/job/update/start
+POST /v1/sessions/<session-id>/boss/job/update/draft
+POST /v1/sessions/<session-id>/boss/job/update/submit
+POST /v1/sessions/<session-id>/boss/job/close
 ```
 
 These mirror the local companion API. The relay unwraps successful local responses and forwards local errors as HTTP errors.

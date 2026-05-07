@@ -13,7 +13,16 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from boss_cdp_capture import CdpClient, request_json
-from boss_job_publish_flow import close_job, fill_job_publish_draft, read_job_publish_state, start_job_publish, submit_job_publish
+from boss_job_publish_flow import (
+    close_job,
+    fill_job_publish_draft,
+    fill_job_update_draft,
+    read_job_publish_state,
+    start_job_publish,
+    start_job_update,
+    submit_job_publish,
+    submit_job_update,
+)
 from boss_login_flow import (
     LOGIN_URL,
     redact_phone,
@@ -88,6 +97,27 @@ class JobPublishDraftRequest(BaseModel):
 
 class JobPublishSubmitRequest(BaseModel):
     confirm: bool = False
+
+
+class JobUpdateStartRequest(BaseModel):
+    job_title: str = Field(min_length=1, max_length=120)
+
+
+class JobUpdateDraftRequest(BaseModel):
+    job_description: str | None = Field(default=None, min_length=1, max_length=5000)
+    overseas_status: str | None = None
+    experience: str | None = None
+    education: str | None = None
+    salary_min_k: int | None = Field(default=None, ge=1, le=500)
+    salary_max_k: int | None = Field(default=None, ge=1, le=500)
+    salary_months: int | None = Field(default=None, ge=1, le=36)
+    keywords: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_salary_order(self) -> "JobUpdateDraftRequest":
+        if self.salary_min_k is not None and self.salary_max_k is not None and self.salary_max_k < self.salary_min_k:
+            raise ValueError("salary_max_k must be greater than or equal to salary_min_k")
+        return self
 
 
 class JobCloseRequest(BaseModel):
@@ -176,6 +206,21 @@ def job_publish_draft(payload: JobPublishDraftRequest) -> dict[str, Any]:
 @app.post("/v1/boss/job/publish/submit")
 def job_publish_submit(payload: JobPublishSubmitRequest) -> dict[str, Any]:
     return run_with_client(lambda client: submit_job_publish(client, payload.confirm))
+
+
+@app.post("/v1/boss/job/update/start")
+def job_update_start(payload: JobUpdateStartRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: start_job_update(client, payload.model_dump()))
+
+
+@app.post("/v1/boss/job/update/draft")
+def job_update_draft(payload: JobUpdateDraftRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: fill_job_update_draft(client, payload.model_dump()))
+
+
+@app.post("/v1/boss/job/update/submit")
+def job_update_submit(payload: JobPublishSubmitRequest) -> dict[str, Any]:
+    return run_with_client(lambda client: submit_job_update(client, payload.confirm))
 
 
 @app.post("/v1/boss/job/close")
