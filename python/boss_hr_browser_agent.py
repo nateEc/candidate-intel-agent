@@ -32,6 +32,8 @@ from boss_login_flow import (
     start_recruiter_login,
     submit_sms_code,
 )
+from boss_recruiting_pipeline_flow import prepare_greeting, scan_applications, send_greeting
+import talent_store
 
 
 DEFAULT_HOST = os.environ.get("HR_AGENT_HOST", "127.0.0.1")
@@ -40,6 +42,7 @@ DEFAULT_CDP_PORT = int(os.environ.get("HR_AGENT_CDP_PORT", "9240"))
 DEFAULT_CDP_URL = os.environ.get("HR_AGENT_CDP_URL", f"http://127.0.0.1:{DEFAULT_CDP_PORT}")
 DEFAULT_PROFILE = os.environ.get("HR_AGENT_CHROME_PROFILE", "/tmp/boss-hr-agent-recruiter")
 DEFAULT_START_URL = os.environ.get("HR_AGENT_START_URL", LOGIN_URL)
+DEFAULT_TALENT_DB = Path(os.environ.get("BOSS_TALENT_DB", "data-python/boss_talent.sqlite")).resolve()
 
 
 app = FastAPI(title="BOSS HR Browser Agent", version="0.1.0")
@@ -122,6 +125,37 @@ class JobUpdateDraftRequest(BaseModel):
 
 class JobCloseRequest(BaseModel):
     confirm: bool = False
+    job_title: str | None = Field(default=None, max_length=120)
+
+
+class ApplicationScanRequest(BaseModel):
+    job_title: str | None = Field(default=None, max_length=120)
+    job_filter: str | None = Field(default=None, max_length=160)
+    limit: int = Field(default=20, ge=1, le=200)
+    include_resumes: bool = True
+    detail_max_pages: int = Field(default=8, ge=1, le=20)
+    detail_wait_ms: int = Field(default=1200, ge=0, le=10000)
+    detail_scroll_delta: int = Field(default=620, ge=100, le=2000)
+    detail_scroll_wait_ms: int = Field(default=900, ge=0, le=10000)
+    profile_wait_ms: int = Field(default=1200, ge=0, le=10000)
+    candidate_wait_ms: int = Field(default=2600, ge=0, le=30000)
+    candidate_jitter_ms: int = Field(default=1400, ge=0, le=30000)
+    dry_run: bool = True
+    job_profile: dict[str, Any] = Field(default_factory=dict)
+    output_dir: str = "data-python"
+
+
+class GreetingPrepareRequest(BaseModel):
+    quick_reply_index: int = Field(default=0, ge=0, le=20)
+    message_text: str | None = Field(default=None, max_length=500)
+    source_fingerprint: str | None = None
+    job_title: str | None = Field(default=None, max_length=120)
+
+
+class GreetingSendRequest(BaseModel):
+    confirm: bool = False
+    expected_text: str | None = Field(default=None, max_length=500)
+    source_fingerprint: str | None = None
     job_title: str | None = Field(default=None, max_length=120)
 
 
@@ -228,10 +262,61 @@ def job_close(payload: JobCloseRequest) -> dict[str, Any]:
     return run_with_client(lambda client: close_job(client, payload.model_dump()))
 
 
-def run_with_client(action: Any) -> dict[str, Any]:
+@app.post("/v1/boss/applications/scan")
+def applications_scan(payload: ApplicationScanRequest) -> dict[str, Any]:
+    return run_with_client(
+        lambda client: scan_applications(client, payload.model_dump(), DEFAULT_TALENT_DB),
+        preferred_url_part="/web/chat/index",
+    )
+
+
+@app.get("/v1/boss/applications/scan/{scan_run_id}")
+def applications_scan_status(scan_run_id: str) -> dict[str, Any]:
+    with talent_store.connect(DEFAULT_TALENT_DB) as conn:
+        run = talent_store.get_scan_run(conn, scan_run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="scan run not found")
+    return {"status": run.get("status"), "scan_run_id": scan_run_id, "scan_run": run}
+
+
+@app.post("/v1/boss/greetings/prepare")
+def greetings_prepare(payload: GreetingPrepareRequest) -> dict[str, Any]:
+    return run_with_client(
+        lambda client: prepare_greeting(client, payload.model_dump()),
+        preferred_url_part="/web/chat/index",
+        require_preferred=True,
+    )
+
+
+@app.post("/v1/boss/greetings/send")
+def greetings_send(payload: GreetingSendRequest) -> dict[str, Any]:
+    return run_with_client(
+        lambda client: send_greeting(client, payload.model_dump(), DEFAULT_TALENT_DB),
+        preferred_url_part="/web/chat/index",
+        require_preferred=True,
+    )
+
+
+def run_with_client(
+    action: Any,
+    *,
+    preferred_url_part: str | None = None,
+    require_preferred: bool = False,
+) -> dict[str, Any]:
     config = get_browser_config()
     ensure_chrome(config["cdp_url"], int(config["cdp_port"]), config["profile"], config["start_url"])
-    target = get_or_create_boss_target(config["cdp_url"], config["start_url"])
+    target = get_or_create_boss_target(config["cdp_url"], config["start_url"], preferred_url_part=preferred_url_part)
+    if require_preferred and preferred_url_part and preferred_url_part not in str(target.get("url", "")):
+        return update_state(
+            {
+                "status": "needs_manual",
+                "message": "请先在 BOSS 沟通页选择一个候选人，再准备或发送打招呼消息。",
+                "ok": False,
+                "reason": "chat-page-not-open",
+                "current_url": target.get("url"),
+                "expected_url_part": preferred_url_part,
+            }
+        )
     client = CdpClient(target["webSocketDebuggerUrl"])
     try:
         result = action(client)
@@ -282,14 +367,22 @@ def cdp_available(cdp_url: str) -> bool:
         return False
 
 
-def get_or_create_boss_target(cdp_url: str, start_url: str) -> dict[str, Any]:
+def get_or_create_boss_target(cdp_url: str, start_url: str, preferred_url_part: str | None = None) -> dict[str, Any]:
     try:
         targets = request_json(f"{cdp_url.rstrip('/')}/json/list")
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"无法连接 Chrome CDP：{exc}") from exc
 
-    for target in targets:
-        if target.get("type") == "page" and "zhipin.com" in str(target.get("url", "")):
+    boss_targets = [
+        target
+        for target in targets
+        if target.get("type") == "page" and "zhipin.com" in str(target.get("url", ""))
+    ]
+    if preferred_url_part:
+        for target in boss_targets:
+            if preferred_url_part in str(target.get("url", "")):
+                return target
+    for target in boss_targets:
             return target
 
     encoded = urllib.parse.quote(start_url, safe="")

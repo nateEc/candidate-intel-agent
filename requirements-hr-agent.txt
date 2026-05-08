@@ -2,3 +2,6 @@ fastapi==0.115.6
 uvicorn==0.34.0
 websocket-client==1.9.0
 websockets==13.1
+pyobjc-framework-Cocoa==12.1
+pyobjc-framework-Quartz==12.1
+pyobjc-framework-Vision==12.1

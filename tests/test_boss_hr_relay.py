@@ -58,6 +58,26 @@ class BossHrRelayTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_application_scan_proxy_requires_connected_session(self):
+        client = TestClient(boss_hr_relay_service.app)
+        response = client.post(
+            "/v1/sessions/user-1/boss/applications/scan",
+            headers={"x-boss-relay-token": "test-token"},
+            json={"job_filter": "AI工程师 _ 北京 20-30K", "limit": 5},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_greeting_prepare_proxy_requires_connected_session(self):
+        client = TestClient(boss_hr_relay_service.app)
+        response = client.post(
+            "/v1/sessions/user-1/boss/greetings/prepare",
+            headers={"x-boss-relay-token": "test-token"},
+            json={"quick_reply_index": 0},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_connector_response_preserves_request_id(self):
         import python.boss_hr_relay_connector as connector
 

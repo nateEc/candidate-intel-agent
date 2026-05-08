@@ -341,11 +341,15 @@ GET_RESUME_FRAME_STATE_JS = r"""
   if (!frame) return { ok: false };
   const rect = frame.getBoundingClientRect();
   let canvasStyle = "";
+  let scrollState = {};
   try {
-    const canvas = frame.contentDocument && frame.contentDocument.querySelector("canvas");
+    const doc = frame.contentDocument;
+    const canvas = doc && doc.querySelector("canvas");
     canvasStyle = canvas ? canvas.getAttribute("style") || "" : "";
+    scrollState = readScrollState(frame.contentWindow, doc);
   } catch (error) {
     canvasStyle = String(error);
+    scrollState = { error: String(error) };
   }
   return {
     ok: true,
@@ -357,8 +361,42 @@ GET_RESUME_FRAME_STATE_JS = r"""
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
     canvasStyle,
-    key: `${Math.round(rect.y)}|${Math.round(rect.bottom)}|${canvasStyle}`
+    scrollState,
+    atBottom: rect.height <= window.innerHeight
+      ? Boolean(scrollState.atBottom)
+      : rect.bottom <= window.innerHeight - 80,
+    key: `${Math.round(rect.y)}|${Math.round(rect.bottom)}|${canvasStyle}|${scrollState.scrollTop || 0}|${scrollState.scrollHeight || 0}|${scrollState.clientHeight || 0}`
   };
+
+  function readScrollState(win, doc) {
+    if (!doc) return {};
+    const targets = [
+      doc.scrollingElement,
+      doc.documentElement,
+      doc.body,
+      ...doc.querySelectorAll("main, section, article, div")
+    ].filter((target, index, array) => {
+      if (!target || array.indexOf(target) !== index) return false;
+      return target.scrollHeight > target.clientHeight + 20;
+    });
+    const target = targets.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0];
+    const scrollTop = Math.max(
+      target ? target.scrollTop : 0,
+      win ? win.scrollY || 0 : 0,
+      doc.documentElement ? doc.documentElement.scrollTop || 0 : 0,
+      doc.body ? doc.body.scrollTop || 0 : 0
+    );
+    const scrollHeight = target ? target.scrollHeight : Math.max(doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0);
+    const clientHeight = target ? target.clientHeight : Math.max(doc.documentElement?.clientHeight || 0, doc.body?.clientHeight || 0);
+    return {
+      scrollTop: Math.round(scrollTop),
+      scrollHeight: Math.round(scrollHeight),
+      clientHeight: Math.round(clientHeight),
+      atBottom: scrollHeight <= clientHeight + 20 || scrollTop + clientHeight >= scrollHeight - 24,
+      targetTag: target ? target.tagName : "",
+      targetClass: target ? String(target.className || "").slice(0, 80) : ""
+    };
+  }
 }
 """
 

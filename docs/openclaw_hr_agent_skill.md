@@ -421,9 +421,23 @@ After login, route user intents to structured local actions:
 | "发布 JD" / "发布职位" | W01 job publish endpoints below |
 | "更新职位" / "修改 JD" | W02 job update endpoints below |
 | "关闭职位" / "下架职位" | `POST /v1/boss/job/close` |
+| "巡检投递" / "评估投递人" | `POST /v1/boss/applications/scan` |
+| "给这个候选人打招呼" | `POST /v1/boss/greetings/prepare`, then `POST /v1/boss/greetings/send` after confirmation |
 | "搜索候选人" | `POST /v1/boss/action/search-candidates` |
 | "打开候选人简历" | `POST /v1/boss/action/open-candidate` |
 | "保存这个候选人" | `POST /v1/boss/action/save-visible-candidate` |
+
+For applicant inbox processing and recruiter-safe greetings, follow:
+
+```text
+docs/boss_recruiting_pipeline_skill.md
+```
+
+High-impact rule for W08-W11:
+
+- Scanning and evaluation may run without confirmation.
+- Sending any BOSS chat message requires explicit recruiter confirmation of the exact input text.
+- Do not click `不合适` in P0.
 
 ## W01 Job Publish
 

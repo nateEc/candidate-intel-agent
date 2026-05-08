@@ -229,6 +229,42 @@ async def job_close(
     return await proxy_json(session_id, "POST", "/v1/boss/job/close", payload, x_boss_relay_token)
 
 
+@app.post("/v1/sessions/{session_id}/boss/applications/scan")
+async def applications_scan(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/applications/scan", payload, x_boss_relay_token)
+
+
+@app.get("/v1/sessions/{session_id}/boss/applications/scan/{scan_run_id}")
+async def applications_scan_status(
+    session_id: str,
+    scan_run_id: str,
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "GET", f"/v1/boss/applications/scan/{scan_run_id}", None, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/greetings/prepare")
+async def greetings_prepare(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/greetings/prepare", payload, x_boss_relay_token)
+
+
+@app.post("/v1/sessions/{session_id}/boss/greetings/send")
+async def greetings_send(
+    session_id: str,
+    payload: dict[str, Any],
+    x_boss_relay_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    return await proxy_json(session_id, "POST", "/v1/boss/greetings/send", payload, x_boss_relay_token)
+
+
 async def proxy_json(
     session_id: str,
     method: str,
