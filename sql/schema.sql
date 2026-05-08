@@ -18,6 +18,12 @@ CREATE TABLE candidates (
   tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   source_url TEXT,
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  detail_summary TEXT,
+  detail_tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  detail_schools_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  detail_companies_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  detail_positions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  parsed_confidence NUMERIC(4, 3),
   created_by TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -82,6 +88,80 @@ CREATE TABLE candidate_notes (
 
 CREATE INDEX idx_candidate_notes_candidate_id ON candidate_notes (candidate_id);
 CREATE INDEX idx_candidate_notes_status ON candidate_notes (status);
+
+CREATE TABLE application_scan_runs (
+  id TEXT PRIMARY KEY,
+  job_filter TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  candidate_count INTEGER NOT NULL DEFAULT 0,
+  application_count INTEGER NOT NULL DEFAULT 0,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  raw_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE candidate_identity_links (
+  identity_key TEXT PRIMARY KEY,
+  source_fingerprint TEXT NOT NULL,
+  confidence NUMERIC(4, 3),
+  basis_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_candidate_identity_links_fingerprint ON candidate_identity_links (source_fingerprint);
+
+CREATE TABLE candidate_applications (
+  id BIGSERIAL PRIMARY KEY,
+  application_key TEXT NOT NULL UNIQUE,
+  source_fingerprint TEXT NOT NULL,
+  scan_run_id TEXT REFERENCES application_scan_runs(id),
+  job_title TEXT,
+  job_filter TEXT,
+  candidate_name TEXT,
+  chat_status TEXT,
+  last_message TEXT,
+  message_time TEXT,
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_candidate_applications_fingerprint ON candidate_applications (source_fingerprint);
+CREATE INDEX idx_candidate_applications_job ON candidate_applications (job_title);
+CREATE INDEX idx_candidate_applications_scan ON candidate_applications (scan_run_id);
+
+CREATE TABLE candidate_evaluations (
+  id BIGSERIAL PRIMARY KEY,
+  source_fingerprint TEXT NOT NULL,
+  application_key TEXT,
+  job_title TEXT,
+  grade TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  risks_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  recommended_action TEXT,
+  evaluator_version TEXT,
+  evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  raw_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX idx_candidate_evaluations_fingerprint ON candidate_evaluations (source_fingerprint);
+CREATE INDEX idx_candidate_evaluations_grade ON candidate_evaluations (grade);
+
+CREATE TABLE candidate_interactions (
+  id BIGSERIAL PRIMARY KEY,
+  source_fingerprint TEXT NOT NULL,
+  interaction_type TEXT NOT NULL,
+  job_title TEXT,
+  message_text TEXT,
+  status TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  raw_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX idx_candidate_interactions_fingerprint ON candidate_interactions (source_fingerprint);
+CREATE INDEX idx_candidate_interactions_type ON candidate_interactions (interaction_type);
 
 CREATE TABLE boss_job_postings (
   id BIGSERIAL PRIMARY KEY,
@@ -181,3 +261,45 @@ CREATE TABLE org_intel_job_runs (
 );
 
 CREATE INDEX idx_org_intel_job_runs_job_id ON org_intel_job_runs (job_id);
+
+CREATE TABLE org_intel_subscriptions (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  display_name TEXT,
+  cadence TEXT NOT NULL DEFAULT 'weekly',
+  companies_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+  weekly_since_days INTEGER NOT NULL DEFAULT 14,
+  monthly_since_days INTEGER NOT NULL DEFAULT 45,
+  freshness_policy TEXT NOT NULL DEFAULT 'auto',
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_intel_subscriptions_owner ON org_intel_subscriptions (owner_id);
+CREATE INDEX idx_org_intel_subscriptions_status ON org_intel_subscriptions (status);
+
+CREATE TABLE org_intel_digest_runs (
+  id TEXT PRIMARY KEY,
+  subscription_id TEXT NOT NULL REFERENCES org_intel_subscriptions(id),
+  owner_id TEXT NOT NULL,
+  cadence TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  current_step TEXT,
+  eta_seconds INTEGER,
+  eta_at TIMESTAMPTZ,
+  request_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  company_jobs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  digest_markdown TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_intel_digest_runs_subscription ON org_intel_digest_runs (subscription_id);
+CREATE INDEX idx_org_intel_digest_runs_owner ON org_intel_digest_runs (owner_id);
+CREATE INDEX idx_org_intel_digest_runs_status ON org_intel_digest_runs (status);
+CREATE INDEX idx_org_intel_digest_runs_created_at ON org_intel_digest_runs (created_at);

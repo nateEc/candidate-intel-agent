@@ -10,10 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import Depends, Header, HTTPException
+from fastapi import FastAPI
+from pydantic import BaseModel, Field, model_validator
 
 import org_job_store as store
+from org_digest import render_ceo_digest
 from org_intel import normalize_aliases
 from org_intel_agent import should_refresh_source
 
@@ -24,6 +26,7 @@ DEFAULT_OUTPUT_DIR = os.environ.get("ORG_INTEL_OUTPUT_DIR", "org-intel")
 POLL_SECONDS = float(os.environ.get("ORG_INTEL_WORKER_POLL_SECONDS", "2"))
 DEFAULT_CANDIDATES_CDP_URL = os.environ.get("BOSS_CANDIDATES_CDP_URL", "http://127.0.0.1:9222")
 DEFAULT_JOBS_CDP_URL = os.environ.get("BOSS_JOBS_CDP_URL", "http://127.0.0.1:9223")
+ORG_INTEL_API_TOKEN = os.environ.get("ORG_INTEL_API_TOKEN")
 
 
 app = FastAPI(title="Org Intel Agent", version="0.1.0")
@@ -61,6 +64,83 @@ class OrgIntelResponse(BaseModel):
     progress: dict[str, Any] = Field(default_factory=dict)
 
 
+class SubscriptionCompany(BaseModel):
+    company: str = Field(min_length=1)
+    aliases: list[str] = Field(default_factory=list)
+    mode: Literal["quick", "standard", "full"] = "standard"
+
+
+class SubscriptionCreateRequest(BaseModel):
+    owner_id: str = Field(min_length=1)
+    display_name: str | None = None
+    cadence: Literal["weekly", "monthly", "weekly_and_monthly"] = "weekly"
+    companies: list[SubscriptionCompany] = Field(min_length=1)
+    timezone: str = "Asia/Shanghai"
+    weekly_since_days: int = Field(default=14, ge=1, le=365)
+    monthly_since_days: int = Field(default=45, ge=1, le=730)
+    freshness_policy: Literal["auto", "none", "jobs", "candidates", "all"] = "auto"
+    status: Literal["active", "paused"] = "active"
+
+
+class SubscriptionPatchRequest(BaseModel):
+    display_name: str | None = None
+    cadence: Literal["weekly", "monthly", "weekly_and_monthly"] | None = None
+    companies: list[SubscriptionCompany] | None = None
+    timezone: str | None = None
+    weekly_since_days: int | None = Field(default=None, ge=1, le=365)
+    monthly_since_days: int | None = Field(default=None, ge=1, le=730)
+    freshness_policy: Literal["auto", "none", "jobs", "candidates", "all"] | None = None
+    status: Literal["active", "paused"] | None = None
+
+    @model_validator(mode="after")
+    def validate_companies_if_present(self) -> "SubscriptionPatchRequest":
+        if self.companies is not None and not self.companies:
+            raise ValueError("companies must contain at least one company when provided")
+        return self
+
+
+class SubscriptionResponse(BaseModel):
+    id: str
+    owner_id: str
+    display_name: str | None = None
+    cadence: str
+    companies: list[dict[str, Any]]
+    timezone: str
+    weekly_since_days: int
+    monthly_since_days: int
+    freshness_policy: str
+    status: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class DigestRunRequest(BaseModel):
+    cadence: Literal["weekly", "monthly"]
+    client_request_id: str | None = None
+
+
+class DigestRunResponse(BaseModel):
+    status: str
+    digest_job_id: str
+    subscription_id: str
+    owner_id: str
+    cadence: str
+    eta_seconds: int | None = None
+    eta_at: str | None = None
+    message: str
+    digest_markdown: str | None = None
+    company_statuses: list[dict[str, Any]] = Field(default_factory=list)
+    progress: dict[str, Any] = Field(default_factory=dict)
+
+
+def require_api_token(authorization: str | None = Header(default=None)) -> None:
+    if not ORG_INTEL_API_TOKEN:
+        return
+    expected = f"Bearer {ORG_INTEL_API_TOKEN}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="invalid or missing API token")
+
+
 @app.on_event("startup")
 def start_worker() -> None:
     global worker_thread
@@ -89,7 +169,7 @@ def health() -> dict[str, Any]:
     }
 
 
-@app.post("/v1/org-intel/requests", response_model=OrgIntelResponse)
+@app.post("/v1/org-intel/requests", response_model=OrgIntelResponse, dependencies=[Depends(require_api_token)])
 def create_org_intel_request(payload: OrgIntelRequest) -> OrgIntelResponse:
     aliases = normalize_aliases(payload.company, payload.aliases)
     request_data = payload.model_dump()
@@ -118,13 +198,409 @@ def create_org_intel_request(payload: OrgIntelRequest) -> OrgIntelResponse:
         return job_to_response(conn, job, queued_message(payload, eta_seconds))
 
 
-@app.get("/v1/org-intel/requests/{job_id}", response_model=OrgIntelResponse)
+@app.get("/v1/org-intel/requests/{job_id}", response_model=OrgIntelResponse, dependencies=[Depends(require_api_token)])
 def get_org_intel_request(job_id: str) -> OrgIntelResponse:
     with store.connect(DEFAULT_DB) as conn:
         job = store.get_job(conn, job_id)
         if not job:
             raise HTTPException(status_code=404, detail="job not found")
         return job_to_response(conn, job, status_message(job))
+
+
+@app.post(
+    "/v1/org-intel/subscriptions",
+    response_model=SubscriptionResponse,
+    dependencies=[Depends(require_api_token)],
+)
+def create_subscription(payload: SubscriptionCreateRequest) -> SubscriptionResponse:
+    data = payload.model_dump()
+    data["companies"] = normalize_subscription_companies(data["companies"])
+    with store.connect(DEFAULT_DB) as conn:
+        subscription = store.create_subscription(conn, data)
+        return subscription_to_response(subscription)
+
+
+@app.get(
+    "/v1/org-intel/subscriptions",
+    response_model=list[SubscriptionResponse],
+    dependencies=[Depends(require_api_token)],
+)
+def list_subscriptions(owner_id: str | None = None) -> list[SubscriptionResponse]:
+    with store.connect(DEFAULT_DB) as conn:
+        return [subscription_to_response(item) for item in store.list_subscriptions(conn, owner_id)]
+
+
+@app.get(
+    "/v1/org-intel/subscriptions/{subscription_id}",
+    response_model=SubscriptionResponse,
+    dependencies=[Depends(require_api_token)],
+)
+def get_subscription(subscription_id: str) -> SubscriptionResponse:
+    with store.connect(DEFAULT_DB) as conn:
+        subscription = store.get_subscription(conn, subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="subscription not found")
+        return subscription_to_response(subscription)
+
+
+@app.patch(
+    "/v1/org-intel/subscriptions/{subscription_id}",
+    response_model=SubscriptionResponse,
+    dependencies=[Depends(require_api_token)],
+)
+def patch_subscription(subscription_id: str, payload: SubscriptionPatchRequest) -> SubscriptionResponse:
+    fields = payload.model_dump(exclude_unset=True)
+    if "companies" in fields and fields["companies"] is not None:
+        fields["companies"] = normalize_subscription_companies(fields["companies"])
+    with store.connect(DEFAULT_DB) as conn:
+        if not store.get_subscription(conn, subscription_id):
+            raise HTTPException(status_code=404, detail="subscription not found")
+        subscription = store.update_subscription(conn, subscription_id, **fields)
+        return subscription_to_response(subscription or {})
+
+
+@app.post(
+    "/v1/org-intel/subscriptions/{subscription_id}/digest-runs",
+    response_model=DigestRunResponse,
+    dependencies=[Depends(require_api_token)],
+)
+def create_digest_run(subscription_id: str, payload: DigestRunRequest) -> DigestRunResponse:
+    with store.connect(DEFAULT_DB) as conn:
+        subscription = store.get_subscription(conn, subscription_id)
+        if not subscription:
+            raise HTTPException(status_code=404, detail="subscription not found")
+        if subscription.get("status") != "active":
+            raise HTTPException(status_code=409, detail="subscription is paused")
+        if subscription.get("cadence") not in (payload.cadence, "weekly_and_monthly"):
+            raise HTTPException(status_code=400, detail="cadence is not enabled for this subscription")
+
+        active = store.get_active_digest_run(conn, subscription_id, payload.cadence)
+        if active:
+            digest = advance_digest_run(conn, active)
+            return digest_to_response(digest)
+
+        company_jobs, eta_seconds = create_company_job_items(conn, subscription, payload)
+        request = payload.model_dump()
+        digest = store.create_digest_run(conn, subscription, payload.cadence, request, company_jobs, eta_seconds)
+        digest = advance_digest_run(conn, digest)
+        return digest_to_response(digest)
+
+
+@app.get(
+    "/v1/org-intel/digest-runs",
+    response_model=list[DigestRunResponse],
+    dependencies=[Depends(require_api_token)],
+)
+def list_digest_runs(
+    owner_id: str | None = None,
+    subscription_id: str | None = None,
+    cadence: Literal["weekly", "monthly"] | None = None,
+    limit: int = 20,
+) -> list[DigestRunResponse]:
+    with store.connect(DEFAULT_DB) as conn:
+        digests = store.list_digest_runs(conn, subscription_id, owner_id, cadence, limit)
+        return [digest_to_response(advance_digest_run(conn, digest)) for digest in digests]
+
+
+@app.get(
+    "/v1/org-intel/digest-runs/{digest_job_id}",
+    response_model=DigestRunResponse,
+    dependencies=[Depends(require_api_token)],
+)
+def get_digest_run(digest_job_id: str) -> DigestRunResponse:
+    with store.connect(DEFAULT_DB) as conn:
+        digest = store.get_digest_run(conn, digest_job_id)
+        if not digest:
+            raise HTTPException(status_code=404, detail="digest run not found")
+        digest = advance_digest_run(conn, digest)
+        return digest_to_response(digest)
+
+
+def normalize_subscription_companies(companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized = []
+    for item in companies:
+        company = str(item.get("company") or "").strip()
+        aliases = normalize_aliases(company, item.get("aliases", []))
+        normalized.append(
+            {
+                "company": company,
+                "aliases": aliases,
+                "mode": item.get("mode") or "standard",
+            }
+        )
+    return normalized
+
+
+def subscription_to_response(subscription: dict[str, Any]) -> SubscriptionResponse:
+    return SubscriptionResponse(
+        id=subscription["id"],
+        owner_id=subscription["owner_id"],
+        display_name=subscription.get("display_name"),
+        cadence=subscription.get("cadence", "weekly"),
+        companies=subscription.get("companies", []),
+        timezone=subscription.get("timezone", "Asia/Shanghai"),
+        weekly_since_days=int(subscription.get("weekly_since_days") or 14),
+        monthly_since_days=int(subscription.get("monthly_since_days") or 45),
+        freshness_policy=subscription.get("freshness_policy", "auto"),
+        status=subscription.get("status", "active"),
+        created_at=subscription.get("created_at"),
+        updated_at=subscription.get("updated_at"),
+    )
+
+
+def create_company_job_items(
+    conn: Any,
+    subscription: dict[str, Any],
+    payload: DigestRunRequest,
+) -> tuple[list[dict[str, Any]], int]:
+    since_days = since_days_for_cadence(subscription, payload.cadence)
+    company_jobs = []
+    eta_values = []
+    for company_config in subscription.get("companies", []):
+        item, eta_seconds = create_or_reuse_company_job(conn, subscription, company_config, payload, since_days)
+        company_jobs.append(item)
+        eta_values.append(eta_seconds)
+    return company_jobs, max(eta_values or [30])
+
+
+def create_or_reuse_company_job(
+    conn: Any,
+    subscription: dict[str, Any],
+    company_config: dict[str, Any],
+    payload: DigestRunRequest,
+    since_days: int,
+) -> tuple[dict[str, Any], int]:
+    company = company_config["company"]
+    aliases = normalize_aliases(company, company_config.get("aliases", []))
+    mode = company_config.get("mode") or "standard"
+    request_model = OrgIntelRequest(
+        company=company,
+        aliases=aliases,
+        mode=mode,
+        refresh=subscription.get("freshness_policy") or "auto",
+        client_request_id=payload.client_request_id,
+        report=True,
+        freshness_hours=since_days * 24,
+    )
+    request_data = request_model.model_dump()
+    request_data["aliases"] = aliases
+    request_data["since_days"] = since_days
+
+    if request_model.refresh == "auto":
+        fresh_report = store.latest_report_for_company(conn, company, request_model.freshness_hours)
+        if fresh_report:
+            return (
+                {
+                    "company": company,
+                    "aliases": aliases,
+                    "mode": mode,
+                    "status": "ready",
+                    "report_id": fresh_report.get("id"),
+                },
+                30,
+            )
+
+    active = store.get_active_job_for_company(conn, company)
+    if active:
+        return (
+            {
+                "company": company,
+                "aliases": aliases,
+                "mode": mode,
+                "status": active["status"],
+                "job_id": active["id"],
+            },
+            remaining_eta(active) or estimate_eta_seconds(request_model, conn),
+        )
+
+    eta_seconds = estimate_eta_seconds(request_model, conn)
+    job = store.create_job(conn, request_data, eta_seconds)
+    return (
+        {
+            "company": company,
+            "aliases": aliases,
+            "mode": mode,
+            "status": job["status"],
+            "job_id": job["id"],
+        },
+        eta_seconds,
+    )
+
+
+def advance_digest_run(conn: Any, digest: dict[str, Any]) -> dict[str, Any]:
+    if digest["status"] in store.DIGEST_TERMINAL_STATUSES and digest.get("digest_markdown"):
+        return digest
+
+    subscription = store.get_subscription(conn, digest["subscription_id"])
+    if not subscription:
+        store.update_digest_run(conn, digest["id"], status="failed", current_step="failed", error_message="subscription not found", finished_at=store.iso_now())
+        return store.get_digest_run(conn, digest["id"]) or digest
+
+    company_items = []
+    company_results = []
+    active_etas = []
+    for item in digest.get("company_jobs", []):
+        updated_item, result, eta = collect_company_result(conn, item)
+        company_items.append(updated_item)
+        company_results.append(result)
+        if eta is not None:
+            active_etas.append(eta)
+
+    if active_etas:
+        eta_seconds = max(active_etas)
+        eta_at = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + eta_seconds, timezone.utc).isoformat()
+        store.update_digest_run(
+            conn,
+            digest["id"],
+            status="running",
+            current_step="waiting_company_jobs",
+            eta_seconds=eta_seconds,
+            eta_at=eta_at,
+            company_jobs=company_items,
+        )
+        return store.get_digest_run(conn, digest["id"]) or digest
+
+    status = terminal_digest_status(company_results)
+    if status in ("ready", "partial_ready"):
+        since_days = since_days_for_cadence(subscription, digest["cadence"])
+        markdown = render_ceo_digest(subscription, digest["cadence"], company_results, since_days)
+        store.update_digest_run(
+            conn,
+            digest["id"],
+            status=status,
+            current_step=status,
+            company_jobs=company_items,
+            digest_markdown=markdown,
+            finished_at=store.iso_now(),
+        )
+    else:
+        store.update_digest_run(
+            conn,
+            digest["id"],
+            status=status,
+            current_step=status,
+            company_jobs=company_items,
+            error_message=digest_failure_message(company_results),
+            finished_at=store.iso_now(),
+        )
+    return store.get_digest_run(conn, digest["id"]) or digest
+
+
+def collect_company_result(conn: Any, item: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int | None]:
+    company = item.get("company") or ""
+    if item.get("report_id"):
+        report = store.latest_report_by_id(conn, int(item["report_id"]))
+        if report:
+            findings = store.latest_findings(conn, company, report.get("id"))
+            updated = {**item, "status": "ready", "report_id": report.get("id")}
+            return updated, {"company": company, "status": "ready", "report": report, "findings": findings}, None
+
+    job_id = item.get("job_id")
+    if not job_id:
+        updated = {**item, "status": "failed", "error_message": "missing job_id and report_id"}
+        return updated, {"company": company, "status": "failed", "error_message": updated["error_message"]}, None
+
+    job = store.get_job(conn, job_id)
+    if not job:
+        updated = {**item, "status": "failed", "job_id": job_id, "error_message": "single-company job not found"}
+        return updated, {"company": company, "status": "failed", "error_message": updated["error_message"]}, None
+
+    if job["status"] == "ready":
+        report = store.latest_report_by_id(conn, job.get("report_id"))
+        if not report:
+            updated = {**item, "status": "failed", "job_id": job_id, "error_message": "single-company job has no report"}
+            return updated, {"company": company, "status": "failed", "error_message": updated["error_message"]}, None
+        findings = store.latest_findings(conn, company, report.get("id"))
+        updated = {**item, "status": "ready", "job_id": job_id, "report_id": report.get("id")}
+        return updated, {"company": company, "status": "ready", "report": report, "findings": findings}, None
+
+    if job["status"] == "blocked_needs_human":
+        message = job.get("error_message") or "BOSS 触发登录/验证，需要人工处理。"
+        updated = {**item, "status": "blocked_needs_human", "job_id": job_id, "error_message": message}
+        return updated, {"company": company, "status": "blocked_needs_human", "message": message}, None
+
+    if job["status"] == "failed":
+        message = job.get("error_message") or "组织情报任务失败。"
+        updated = {**item, "status": "failed", "job_id": job_id, "error_message": message}
+        return updated, {"company": company, "status": "failed", "error_message": message}, None
+
+    updated = {**item, "status": job["status"], "job_id": job_id}
+    return updated, {"company": company, "status": job["status"], "job_id": job_id}, remaining_eta(job)
+
+
+def terminal_digest_status(company_results: list[dict[str, Any]]) -> str:
+    ready = [item for item in company_results if item.get("status") == "ready"]
+    blocked = [item for item in company_results if item.get("status") == "blocked_needs_human"]
+    failed = [item for item in company_results if item.get("status") == "failed"]
+    if ready and not blocked and not failed:
+        return "ready"
+    if ready:
+        return "partial_ready"
+    if blocked:
+        return "blocked_needs_human"
+    return "failed"
+
+
+def digest_failure_message(company_results: list[dict[str, Any]]) -> str:
+    blocked = [item.get("company") for item in company_results if item.get("status") == "blocked_needs_human"]
+    failed = [item.get("company") for item in company_results if item.get("status") == "failed"]
+    if blocked:
+        return "BOSS 触发登录/验证，需要人工处理：" + "、".join(str(item) for item in blocked)
+    if failed:
+        return "组织情报任务失败：" + "、".join(str(item) for item in failed)
+    return "没有可用公司报告。"
+
+
+def digest_to_response(digest: dict[str, Any]) -> DigestRunResponse:
+    return DigestRunResponse(
+        status=digest["status"],
+        digest_job_id=digest["id"],
+        subscription_id=digest["subscription_id"],
+        owner_id=digest["owner_id"],
+        cadence=digest["cadence"],
+        eta_seconds=remaining_digest_eta(digest),
+        eta_at=digest.get("eta_at"),
+        message=digest_status_message(digest),
+        digest_markdown=digest.get("digest_markdown") if digest["status"] in store.DIGEST_TERMINAL_STATUSES else None,
+        company_statuses=[
+            {
+                "company": item.get("company"),
+                "status": item.get("status"),
+                "job_id": item.get("job_id"),
+                "report_id": item.get("report_id"),
+                "error_message": item.get("error_message"),
+            }
+            for item in digest.get("company_jobs", [])
+        ],
+        progress={"current_step": digest.get("current_step")},
+    )
+
+
+def remaining_digest_eta(digest: dict[str, Any]) -> int | None:
+    if digest["status"] in store.DIGEST_TERMINAL_STATUSES:
+        return 0
+    eta_at = store.parse_datetime(digest.get("eta_at"))
+    if not eta_at:
+        return digest.get("eta_seconds")
+    return max(0, int((eta_at - datetime.now(timezone.utc)).total_seconds()))
+
+
+def digest_status_message(digest: dict[str, Any]) -> str:
+    if digest["status"] == "ready":
+        return "CEO 组织情报 digest 已生成。"
+    if digest["status"] == "partial_ready":
+        return "CEO 组织情报 digest 已部分生成，部分公司存在阻塞或失败。"
+    if digest["status"] == "blocked_needs_human":
+        return digest.get("error_message") or "BOSS 触发登录/验证，需要运营处理。"
+    if digest["status"] == "failed":
+        return digest.get("error_message") or "CEO 组织情报 digest 生成失败。"
+    return "CEO 组织情报 digest 正在生成。"
+
+
+def since_days_for_cadence(subscription: dict[str, Any], cadence: str) -> int:
+    if cadence == "monthly":
+        return int(subscription.get("monthly_since_days") or 45)
+    return int(subscription.get("weekly_since_days") or 14)
 
 
 def worker_loop() -> None:
@@ -299,7 +775,7 @@ def run_report(request: dict[str, Any], aliases: list[str]) -> tuple[int | None,
         "--output-dir",
         DEFAULT_OUTPUT_DIR,
         "--since-days",
-        "90",
+        str(request.get("since_days") or 90),
     ]
     for alias in aliases:
         if alias != request["company"]:
