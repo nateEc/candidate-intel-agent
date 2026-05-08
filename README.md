@@ -10,6 +10,7 @@
 
 - [HR Browser Agent Design](docs/hr_browser_agent_design.md)
 - [OpenClaw HR Agent Skill](docs/openclaw_hr_agent_skill.md)
+- [BOSS Recruiting Pipeline Skill](docs/boss_recruiting_pipeline_skill.md)
 - [BOSS Job Management Skill](docs/boss_job_management_skill.md)
 - [HR Companion Distribution](docs/hr_companion_distribution.md)
 - [HR Cloud Relay](docs/hr_cloud_relay_design.md)
@@ -42,6 +43,14 @@ curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/s
 ```
 
 边界不变：验证码、App 安全确认和平台验证必须由用户本人完成；系统只负责打开页面、点击、填表、等待和识别状态。
+
+P0 招聘闭环目前覆盖：招聘者登录、发布/更新/关闭职位、投递收件箱巡检、投递候选人评估入库、弱去重合并，以及“准备打招呼 + 招聘者确认后发送”。投递处理默认使用同一个本机 HR service：
+
+```bash
+curl -X POST http://127.0.0.1:8790/v1/boss/applications/scan \
+  -H 'content-type: application/json' \
+  -d '{"job_filter":"AI工程师 _ 北京 20-30K","limit":20,"include_resumes":true,"dry_run":true}'
+```
 
 ## 目标边界
 
@@ -277,6 +286,18 @@ npm run org:service
 ORG_INTEL_HOST=0.0.0.0 ORG_INTEL_PORT=8787 ./scripts/start_org_intel_stack.sh
 ```
 
+生产对接建议配置 API token：
+
+```bash
+ORG_INTEL_API_TOKEN=<shared-secret> npm run org:service
+```
+
+配置后，除 `/health` 外的 `/v1/org-intel/*` 请求都需要：
+
+```bash
+-H "Authorization: Bearer <shared-secret>"
+```
+
 默认端口约定：
 
 ```text
@@ -305,6 +326,51 @@ curl http://127.0.0.1:8787/v1/org-intel/requests/<job_id>
 ```
 
 状态可能是 `queued`、`running_jobs`、`running_candidates`、`importing`、`generating_report`、`ready`、`blocked_needs_human` 或 `failed`。`ready` 时返回 `report_markdown` 和结构化 `findings`；如果 BOSS 触发验证，会返回 `blocked_needs_human`，由人工在采集浏览器里处理。
+
+CEO 定时周/月报由 Hipilot 或外部 cron 触发，本服务只保存订阅和生成 digest。创建订阅：
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/org-intel/subscriptions \
+  -H 'content-type: application/json' \
+  -H "Authorization: Bearer <shared-secret>" \
+  -d '{
+    "owner_id": "ceo-1",
+    "display_name": "CEO 重点公司监控",
+    "cadence": "weekly_and_monthly",
+    "companies": [
+      {"company": "字节", "aliases": ["字节跳动", "ByteDance", "抖音"], "mode": "standard"},
+      {"company": "腾讯", "aliases": ["Tencent", "腾讯云", "微信"], "mode": "standard"},
+      {"company": "月之暗面", "aliases": ["Moonshot", "Kimi"], "mode": "standard"}
+    ],
+    "timezone": "Asia/Shanghai",
+    "freshness_policy": "auto"
+  }'
+```
+
+到点后触发 digest：
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/org-intel/subscriptions/<subscription_id>/digest-runs \
+  -H 'content-type: application/json' \
+  -H "Authorization: Bearer <shared-secret>" \
+  -d '{"cadence":"weekly","client_request_id":"hipilot-cron-run-id"}'
+```
+
+如果返回 `queued` / `running`，按 `eta_at` 轮询：
+
+```bash
+curl -H "Authorization: Bearer <shared-secret>" \
+  http://127.0.0.1:8787/v1/org-intel/digest-runs/<digest_job_id>
+```
+
+也可以按 owner/subscription/cadence 取最近 digest，例如查看上一次月报：
+
+```bash
+curl -H "Authorization: Bearer <shared-secret>" \
+  "http://127.0.0.1:8787/v1/org-intel/digest-runs?owner_id=ceo-1&cadence=monthly&limit=1"
+```
+
+`ready` 时返回多公司 `digest_markdown`；`partial_ready` 会返回可用公司摘要，并在风险区说明阻塞公司；`blocked_needs_human` 表示 BOSS 账号验证需要运营处理。
 
 导入人才库和职位侧 run 后，可以生成 BOSS-only 组织情报 Markdown：
 
