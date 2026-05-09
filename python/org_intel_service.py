@@ -887,8 +887,17 @@ def estimate_eta_seconds(request: OrgIntelRequest, conn: Any) -> int:
     mode_base = {"quick": 600, "standard": 2100, "full": 5400}[request.mode]
     if request.report and not required_sources:
         mode_base = 90
-    queued = conn.execute("SELECT COUNT(*) FROM org_intel_jobs WHERE status='queued'").fetchone()[0]
-    return mode_base + int(queued) * mode_base
+    active_count = active_job_count(conn)
+    return mode_base * (active_count + 1)
+
+
+def active_job_count(conn: Any) -> int:
+    placeholders = ",".join("?" for _ in store.ACTIVE_STATUSES)
+    row = conn.execute(
+        f"SELECT COUNT(*) FROM org_intel_jobs WHERE status IN ({placeholders})",
+        tuple(store.ACTIVE_STATUSES),
+    ).fetchone()
+    return int(row[0] if row else 0)
 
 
 def queued_message(request: OrgIntelRequest, eta_seconds: int) -> str:

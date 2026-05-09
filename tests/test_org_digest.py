@@ -194,6 +194,26 @@ class OrgDigestTests(unittest.TestCase):
         self.assertIn("风险/阻塞项", advanced["digest_markdown"])
         self.assertIn("腾讯", advanced["digest_markdown"])
 
+    def test_eta_counts_running_jobs_as_queue_depth(self):
+        with store.connect(self.db_path) as conn:
+            running = store.create_job(
+                conn,
+                {"company": "月之暗面", "aliases": ["月之暗面"], "mode": "quick", "refresh": "all", "report": True},
+                eta_seconds=600,
+            )
+            store.update_job(conn, running["id"], status="running_candidates", current_step="candidates")
+
+            request = org_intel_service.OrgIntelRequest(
+                company="腾讯",
+                aliases=["腾讯"],
+                mode="quick",
+                refresh="all",
+                report=True,
+            )
+            eta_seconds = org_intel_service.estimate_eta_seconds(request, conn)
+
+        self.assertEqual(eta_seconds, 1200)
+
 
 if __name__ == "__main__":
     unittest.main()
