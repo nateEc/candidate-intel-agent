@@ -37,8 +37,22 @@ x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 Current Metabot test defaults:
 
 ```text
-BOSS_HR_RELAY_BASE_URL=http://115.190.10.83/boss-hr-relay
+BOSS_HR_RELAY_BASE_URL=https://115.190.10.83/boss-hr-relay
 BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
+```
+
+The current Metabot test endpoint uses a temporary self-signed TLS certificate on the ECS IP. Cloud-hosted agents must disable certificate verification for relay requests:
+
+- Bash/curl: use `curl -k`.
+- Python: use `ssl._create_unverified_context()` for `urllib.request.urlopen(...)`.
+
+This HTTPS endpoint is for Metabot-to-relay API calls. The user's local connector can continue using `http://115.190.10.83/boss-hr-relay` in the bootstrap command.
+
+For the current Metabot test, check the relay session before any scan:
+
+```bash
+curl -skS "$BOSS_HR_RELAY_BASE_URL/v1/sessions/$BOSS_HR_RELAY_SESSION_ID/status" \
+  -H "x-boss-relay-token: $BOSS_HR_RELAY_TOKEN"
 ```
 
 Chrome/CDP defaults:

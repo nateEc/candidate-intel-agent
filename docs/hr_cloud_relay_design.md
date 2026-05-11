@@ -37,6 +37,12 @@ curl https://relay.example.com/health
 Current Metabot test relay is served through nginx at:
 
 ```text
+https://115.190.10.83/boss-hr-relay
+```
+
+This test HTTPS endpoint currently uses a temporary self-signed certificate on the ECS IP, so cloud-agent smoke tests must use insecure TLS verification (`curl -k`, or Python `ssl._create_unverified_context()`). The user's local connector can still use the plain HTTP endpoint:
+
+```text
 http://115.190.10.83/boss-hr-relay
 ```
 
@@ -56,7 +62,7 @@ For first-time users, install and connect in the background with one command:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | \
   BOSS_HR_AGENT_ARCHIVE_URL=https://github.com/nateEc/candidate-intel-agent/archive/refs/heads/main.tar.gz bash -s -- connect-daemon \
-  --relay-url https://relay.example.com \
+  --relay-url http://115.190.10.83/boss-hr-relay \
   --session-id "<user-session-id>" \
   --token "<shared-secret>"
 ```
