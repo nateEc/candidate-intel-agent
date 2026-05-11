@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from websocket import WebSocketConnectionClosedException, create_connection
+from websocket import WebSocketConnectionClosedException, WebSocketTimeoutException, create_connection
 
 
 DEFAULT_LOCAL_BASE_URL = os.environ.get("BOSS_HR_AGENT_BASE_URL", "http://127.0.0.1:8790")
@@ -65,11 +65,17 @@ def run_connector(relay_url: str, session_id: str, token: str, local_base_url: s
     ws_url = build_ws_url(relay_url, session_id, token)
     print(f"Connecting BOSS HR relay session {session_id} -> {relay_url}", flush=True)
     ws = create_connection(ws_url, timeout=30)
-    ws.settimeout(None)
+    ws.settimeout(20)
     print(f"BOSS HR relay session connected: {session_id}", flush=True)
     try:
         while True:
-            raw_message = ws.recv()
+            try:
+                raw_message = ws.recv()
+            except WebSocketTimeoutException:
+                ws.ping()
+                continue
+            if not raw_message:
+                raise RuntimeError("relay websocket closed")
             message = json.loads(raw_message)
             response = handle_message(message, local_base_url, local_timeout_seconds)
             ws.send(json.dumps(response, ensure_ascii=False))
