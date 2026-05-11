@@ -37,19 +37,8 @@ x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 Current Metabot test defaults:
 
 ```text
-BOSS_HR_RELAY_BASE_URL=https://gqjyy-115-190-10-83.run.pinggy-free.link/boss-hr-relay
+BOSS_HR_RELAY_BASE_URL=http://115.190.10.83/boss-hr-relay
 BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
-```
-
-The current Metabot test endpoint is a temporary Pinggy HTTPS tunnel in front of the ECS relay. It uses a normal browser-trusted certificate, so do not use `curl -k` for this URL. Free Pinggy tunnels expire after about 60 minutes; if this URL stops working, ask the operator for the latest tunnel URL from the ECS `boss-hr-pinggy-tunnel` service logs.
-
-This HTTPS endpoint is for Metabot-to-relay API calls. The user's local connector can continue using `http://115.190.10.83/boss-hr-relay` in the bootstrap command.
-
-For the current Metabot test, check the relay session before any scan:
-
-```bash
-curl -sS "$BOSS_HR_RELAY_BASE_URL/v1/sessions/$BOSS_HR_RELAY_SESSION_ID/status" \
-  -H "x-boss-relay-token: $BOSS_HR_RELAY_TOKEN"
 ```
 
 Chrome/CDP defaults:

@@ -37,18 +37,6 @@ curl https://relay.example.com/health
 Current Metabot test relay is served through nginx at:
 
 ```text
-https://gqjyy-115-190-10-83.run.pinggy-free.link/boss-hr-relay
-```
-
-This test HTTPS endpoint is a temporary Pinggy tunnel in front of the ECS nginx relay and uses a normal browser-trusted certificate. Free Pinggy tunnels expire after about 60 minutes; fetch the latest URL with:
-
-```bash
-journalctl -u boss-hr-pinggy-tunnel.service -n 80 --no-pager | grep 'https://'
-```
-
-The user's local connector can still use the plain HTTP endpoint:
-
-```text
 http://115.190.10.83/boss-hr-relay
 ```
 
@@ -68,7 +56,7 @@ For first-time users, install and connect in the background with one command:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | \
   BOSS_HR_AGENT_ARCHIVE_URL=https://github.com/nateEc/candidate-intel-agent/archive/refs/heads/main.tar.gz bash -s -- connect-daemon \
-  --relay-url http://115.190.10.83/boss-hr-relay \
+  --relay-url https://relay.example.com \
   --session-id "<user-session-id>" \
   --token "<shared-secret>"
 ```
