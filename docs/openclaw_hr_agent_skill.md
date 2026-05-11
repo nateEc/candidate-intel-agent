@@ -42,7 +42,7 @@ BOSS_HR_RELAY_TOKEN=<relay-token>
 Current Metabot test defaults:
 
 ```text
-BOSS_HR_RELAY_BASE_URL=http://115.190.10.83:8791
+BOSS_HR_RELAY_BASE_URL=http://115.190.10.83/boss-hr-relay
 BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
 ```
 
@@ -71,7 +71,7 @@ For first-time users, give this one-time install-and-connect command. Replace `<
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash -s -- connect-daemon \
-  --relay-url http://115.190.10.83:8791 \
+  --relay-url http://115.190.10.83/boss-hr-relay \
   --session-id nate-metabot-test \
   --token <relay-token>
 ```

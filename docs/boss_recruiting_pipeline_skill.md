@@ -37,7 +37,7 @@ x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 Current Metabot test defaults:
 
 ```text
-BOSS_HR_RELAY_BASE_URL=http://115.190.10.83:8791
+BOSS_HR_RELAY_BASE_URL=http://115.190.10.83/boss-hr-relay
 BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
 ```
 

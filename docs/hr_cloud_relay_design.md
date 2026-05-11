@@ -34,6 +34,12 @@ Health check:
 curl https://relay.example.com/health
 ```
 
+Current Metabot test relay is served through nginx at:
+
+```text
+http://115.190.10.83/boss-hr-relay
+```
+
 ## Local Connector
 
 On the user's Mac, after installing the lightweight companion:

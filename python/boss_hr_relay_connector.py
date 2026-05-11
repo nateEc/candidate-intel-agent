@@ -41,7 +41,7 @@ def main() -> int:
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
-            print(f"Relay connector disconnected: {exc}", file=sys.stderr)
+            print(f"Relay connector disconnected: {exc}", file=sys.stderr, flush=True)
             if args.once:
                 return 1
             time.sleep(args.reconnect_seconds)
@@ -63,8 +63,10 @@ def parse_args() -> argparse.Namespace:
 
 def run_connector(relay_url: str, session_id: str, token: str, local_base_url: str, local_timeout_seconds: float) -> None:
     ws_url = build_ws_url(relay_url, session_id, token)
-    print(f"Connecting BOSS HR relay session {session_id} -> {relay_url}")
+    print(f"Connecting BOSS HR relay session {session_id} -> {relay_url}", flush=True)
     ws = create_connection(ws_url, timeout=30)
+    ws.settimeout(None)
+    print(f"BOSS HR relay session connected: {session_id}", flush=True)
     try:
         while True:
             raw_message = ws.recv()
