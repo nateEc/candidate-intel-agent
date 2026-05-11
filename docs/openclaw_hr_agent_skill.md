@@ -42,21 +42,18 @@ BOSS_HR_RELAY_TOKEN=<relay-token>
 Current Metabot test defaults:
 
 ```text
-BOSS_HR_RELAY_BASE_URL=https://115.190.10.83/boss-hr-relay
+BOSS_HR_RELAY_BASE_URL=https://gqjyy-115-190-10-83.run.pinggy-free.link/boss-hr-relay
 BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
 ```
 
-The current Metabot test endpoint uses a temporary self-signed TLS certificate on the ECS IP. When the agent calls this endpoint from a cloud runtime, it must disable certificate verification for relay HTTP requests:
+The current Metabot test endpoint is a temporary Pinggy HTTPS tunnel in front of the ECS relay. It uses a normal browser-trusted certificate, so do not use `curl -k` for this URL. Free Pinggy tunnels expire after about 60 minutes; if this URL stops working, ask the operator for the latest tunnel URL from the ECS `boss-hr-pinggy-tunnel` service logs.
 
-- Bash/curl: use `curl -k`.
-- Python: use `ssl._create_unverified_context()` for `urllib.request.urlopen(...)`.
-
-Do not use the old plain HTTP IP URL from a cloud runtime; some cloud sandboxes cannot connect to it. The user's local connector may still use the HTTP relay URL because it runs on the user's Mac and keeps the WebSocket inside the relay tunnel.
+Do not use the old plain HTTP IP URL from a cloud runtime; some cloud sandboxes cannot connect to naked IPs. The user's local connector may still use the HTTP relay URL because it runs on the user's Mac and keeps the WebSocket inside the relay tunnel.
 
 For the current Metabot test, check session connectivity with:
 
 ```bash
-curl -skS "$BOSS_HR_RELAY_BASE_URL/v1/sessions/$BOSS_HR_RELAY_SESSION_ID/status" \
+curl -sS "$BOSS_HR_RELAY_BASE_URL/v1/sessions/$BOSS_HR_RELAY_SESSION_ID/status" \
   -H "x-boss-relay-token: $BOSS_HR_RELAY_TOKEN"
 ```
 

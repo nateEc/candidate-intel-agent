@@ -37,10 +37,16 @@ curl https://relay.example.com/health
 Current Metabot test relay is served through nginx at:
 
 ```text
-https://115.190.10.83/boss-hr-relay
+https://gqjyy-115-190-10-83.run.pinggy-free.link/boss-hr-relay
 ```
 
-This test HTTPS endpoint currently uses a temporary self-signed certificate on the ECS IP, so cloud-agent smoke tests must use insecure TLS verification (`curl -k`, or Python `ssl._create_unverified_context()`). The user's local connector can still use the plain HTTP endpoint:
+This test HTTPS endpoint is a temporary Pinggy tunnel in front of the ECS nginx relay and uses a normal browser-trusted certificate. Free Pinggy tunnels expire after about 60 minutes; fetch the latest URL with:
+
+```bash
+journalctl -u boss-hr-pinggy-tunnel.service -n 80 --no-pager | grep 'https://'
+```
+
+The user's local connector can still use the plain HTTP endpoint:
 
 ```text
 http://115.190.10.83/boss-hr-relay
