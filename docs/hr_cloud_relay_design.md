@@ -54,7 +54,8 @@ On the user's Mac, after installing the lightweight companion:
 For first-time users, install and connect in the background with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash -s -- connect-daemon \
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | \
+  BOSS_HR_AGENT_ARCHIVE_URL=https://github.com/nateEc/candidate-intel-agent/archive/refs/heads/main.tar.gz bash -s -- connect-daemon \
   --relay-url https://relay.example.com \
   --session-id "<user-session-id>" \
   --token "<shared-secret>"

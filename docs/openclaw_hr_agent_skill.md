@@ -70,7 +70,8 @@ The user's Mac must run the local connector:
 For first-time users, give this one-time install-and-connect command. Replace `<relay-token>` with the configured relay token:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash -s -- connect-daemon \
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | \
+  BOSS_HR_AGENT_ARCHIVE_URL=https://github.com/nateEc/candidate-intel-agent/archive/refs/heads/main.tar.gz bash -s -- connect-daemon \
   --relay-url http://115.190.10.83/boss-hr-relay \
   --session-id nate-metabot-test \
   --token <relay-token>
