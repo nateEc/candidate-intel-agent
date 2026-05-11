@@ -29,7 +29,7 @@ Environment variable:
 BOSS_HR_AGENT_BASE_URL=http://127.0.0.1:8790
 ```
 
-If the HR agent runs in the cloud, do not call the user's `127.0.0.1`. Use relay mode.
+If the HR agent runs in the cloud, do not call `127.0.0.1` under any circumstance. In a cloud runtime, `127.0.0.1` is the cloud sandbox, not the user's Mac. Use relay mode whenever `BOSS_HR_RELAY_BASE_URL` is configured.
 
 Cloud relay environment variables:
 
@@ -37,6 +37,13 @@ Cloud relay environment variables:
 BOSS_HR_RELAY_BASE_URL=https://relay.example.com
 BOSS_HR_RELAY_SESSION_ID=<user-session-id>
 BOSS_HR_RELAY_TOKEN=<relay-token>
+```
+
+Current Metabot test defaults:
+
+```text
+BOSS_HR_RELAY_BASE_URL=http://115.190.10.83:8791
+BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
 ```
 
 In relay mode, replace local endpoints with:
@@ -58,6 +65,15 @@ The user's Mac must run the local connector:
   --relay-url "$BOSS_HR_RELAY_BASE_URL" \
   --session-id "$BOSS_HR_RELAY_SESSION_ID" \
   --token "$BOSS_HR_RELAY_TOKEN"
+```
+
+For first-time users, give this one-time install-and-connect command. Replace `<relay-token>` with the configured relay token:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash -s -- connect-daemon \
+  --relay-url http://115.190.10.83:8791 \
+  --session-id nate-metabot-test \
+  --token <relay-token>
 ```
 
 The local service can be installed and started by the agent if the host agent has terminal/shell execution.
@@ -121,10 +137,12 @@ GET /v1/sessions/<session-id>/status
 If the relay returns `404 session not connected`, the user has not connected their local companion yet. Say:
 
 ```text
-我还没有看到你本机的 BOSS 连接器在线。请先打开本机 companion 并连接这次会话，连接后我会继续登录流程。
+我还没有看到你本机的 BOSS 连接器在线。请在你的电脑终端运行下面这条连接命令；连接后回复“已连接”，我会继续接管 BOSS 登录流程。
 ```
 
-In local-agent mode, if unavailable and terminal/shell execution is available, do not ask the user to start it manually.
+Then include the one-time install-and-connect command from the Local Service section.
+
+In local-agent mode only, if unavailable and terminal/shell execution is available, do not ask the user to start it manually.
 
 First, try the installed CLI:
 

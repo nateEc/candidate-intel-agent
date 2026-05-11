@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 
 RELAY_TOKEN = os.environ.get("BOSS_HR_RELAY_TOKEN", "")
-REQUEST_TIMEOUT_SECONDS = float(os.environ.get("BOSS_HR_RELAY_REQUEST_TIMEOUT", "45"))
+REQUEST_TIMEOUT_SECONDS = float(os.environ.get("BOSS_HR_RELAY_REQUEST_TIMEOUT", "900"))
 SESSION_RE = re.compile(r"^[A-Za-z0-9_.-]{3,80}$")
 
 

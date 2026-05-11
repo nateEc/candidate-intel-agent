@@ -17,6 +17,7 @@
     "hr:service": "PYTHONPATH=python .venv/bin/uvicorn boss_hr_browser_agent:app --host 127.0.0.1 --port 8790",
     "hr:relay": "PYTHONPATH=python .venv/bin/uvicorn boss_hr_relay_service:app --host 127.0.0.1 --port 8791",
     "hr:connect": ".venv/bin/python python/boss_hr_relay_connector.py",
+    "hr:connect-daemon": "./bin/boss-hr-agent connect-daemon",
     "hr:package": "./scripts/build_boss_hr_agent_release.sh",
     "hr:bootstrap": "./scripts/bootstrap_boss_hr_agent.sh",
     "report:org": ".venv/bin/python python/org_report.py",

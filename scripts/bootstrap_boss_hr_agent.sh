@@ -13,6 +13,7 @@ SKIP_DOWNLOAD="${BOSS_HR_AGENT_SKIP_DOWNLOAD:-0}"
 NO_START="${BOSS_HR_AGENT_NO_START:-0}"
 HR_AGENT_HOST="${HR_AGENT_HOST:-127.0.0.1}"
 HR_AGENT_PORT="${HR_AGENT_PORT:-8790}"
+REQUESTED_ARGS=("$@")
 
 export BOSS_HR_AGENT_HOME
 export HR_AGENT_HOST
@@ -20,8 +21,16 @@ export HR_AGENT_PORT
 
 mkdir -p "$BOSS_HR_AGENT_HOME"
 
+run_installed_cli() {
+  if [ "${#REQUESTED_ARGS[@]}" -gt 0 ]; then
+    "${INSTALL_DIR}/bin/boss-hr-agent" "${REQUESTED_ARGS[@]}"
+  elif [ "$NO_START" != "1" ]; then
+    "${INSTALL_DIR}/bin/boss-hr-agent" start
+  fi
+}
+
 if [ "$SKIP_DOWNLOAD" = "1" ] && [ -x "${INSTALL_DIR}/bin/boss-hr-agent" ]; then
-  "${INSTALL_DIR}/bin/boss-hr-agent" start
+  run_installed_cli
   exit 0
 fi
 
@@ -106,6 +115,7 @@ chmod +x "${staging}/bin/boss-hr-agent" \
   "${staging}/scripts/start_boss_hr_agent_daemon.sh"
 
 if [ -x "${INSTALL_DIR}/bin/boss-hr-agent" ]; then
+  "${INSTALL_DIR}/bin/boss-hr-agent" stop-connector >/dev/null 2>&1 || true
   "${INSTALL_DIR}/bin/boss-hr-agent" stop >/dev/null 2>&1 || true
 fi
 
@@ -116,12 +126,10 @@ fi
 mkdir -p "$(dirname "$INSTALL_DIR")"
 mv "$staging" "$INSTALL_DIR"
 
-if [ "$NO_START" != "1" ]; then
-  "${INSTALL_DIR}/bin/boss-hr-agent" start
-fi
+run_installed_cli
 
 cat <<EOF
-BOSS HR Browser Agent installed$([ "$NO_START" = "1" ] && printf "." || printf " and started.")
+BOSS HR Browser Agent installed$([ "${#REQUESTED_ARGS[@]}" -gt 0 ] && printf " and command executed." || { [ "$NO_START" = "1" ] && printf "." || printf " and started."; })
 Service dir: ${INSTALL_DIR}
 Home: ${BOSS_HR_AGENT_HOME}
 Health: http://${HR_AGENT_HOST}:${HR_AGENT_PORT}/health

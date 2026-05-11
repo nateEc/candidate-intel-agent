@@ -12,6 +12,10 @@ export HR_AGENT_CDP_URL="${HR_AGENT_CDP_URL:-http://127.0.0.1:${HR_AGENT_CDP_POR
 export HR_AGENT_CHROME_PROFILE="${HR_AGENT_CHROME_PROFILE:-${BOSS_HR_AGENT_HOME}/chrome-profile}"
 export HR_AGENT_LOG="${HR_AGENT_LOG:-${BOSS_HR_AGENT_HOME}/logs/service.log}"
 export HR_AGENT_PID_FILE="${HR_AGENT_PID_FILE:-${BOSS_HR_AGENT_HOME}/run/service.pid}"
+export BOSS_HR_CONNECTOR_LOG="${BOSS_HR_CONNECTOR_LOG:-${BOSS_HR_AGENT_HOME}/logs/connector.log}"
+export BOSS_HR_CONNECTOR_PID_FILE="${BOSS_HR_CONNECTOR_PID_FILE:-${BOSS_HR_AGENT_HOME}/run/connector.pid}"
+export BOSS_HR_RELAY_REQUEST_TIMEOUT="${BOSS_HR_RELAY_REQUEST_TIMEOUT:-900}"
+export BOSS_HR_CONNECTOR_LOCAL_TIMEOUT="${BOSS_HR_CONNECTOR_LOCAL_TIMEOUT:-900}"
 export HR_AGENT_START_URL="${HR_AGENT_START_URL:-https://www.zhipin.com/web/user/?ka=header-login}"
 
 health_url="http://${HR_AGENT_HOST}:${HR_AGENT_PORT}/health"
@@ -23,10 +27,16 @@ Usage: boss-hr-agent <command>
 Commands:
   start         Install Python deps if needed, then start the local service in background.
   connect       Connect this machine to a cloud relay for cloud-hosted agents.
+  connect-daemon
+                Start local service, then connect to a cloud relay in background.
   stop          Stop the local service process started by this CLI.
+  stop-connector
+                Stop the background cloud relay connector.
   status        Print service health if running.
   doctor        Check local prerequisites and service paths.
   logs          Tail the service log.
+  connector-logs
+                Tail the cloud relay connector log.
   install-deps  Create .venv and install lightweight service dependencies.
 EOF
 }
@@ -60,6 +70,53 @@ connect_relay() {
   start_service
   export PYTHONPATH="${SERVICE_DIR}/python${PYTHONPATH:+:${PYTHONPATH}}"
   exec "${SERVICE_DIR}/.venv/bin/python" "${SERVICE_DIR}/python/boss_hr_relay_connector.py" "$@"
+}
+
+connect_relay_daemon() {
+  start_service
+  if [ ! -x "${SERVICE_DIR}/.venv/bin/python" ]; then
+    install_deps
+  fi
+
+  if [ -f "$BOSS_HR_CONNECTOR_PID_FILE" ]; then
+    existing_pid="$(cat "$BOSS_HR_CONNECTOR_PID_FILE" 2>/dev/null || true)"
+    if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+      echo "BOSS HR relay connector already running: pid ${existing_pid}"
+      echo "Log: ${BOSS_HR_CONNECTOR_LOG}"
+      return 0
+    fi
+    rm -f "$BOSS_HR_CONNECTOR_PID_FILE"
+  fi
+
+  mkdir -p "$(dirname "$BOSS_HR_CONNECTOR_LOG")" "$(dirname "$BOSS_HR_CONNECTOR_PID_FILE")"
+  export PYTHONPATH="${SERVICE_DIR}/python${PYTHONPATH:+:${PYTHONPATH}}"
+  echo "Starting BOSS HR relay connector in background..."
+  nohup "${SERVICE_DIR}/.venv/bin/python" "${SERVICE_DIR}/python/boss_hr_relay_connector.py" "$@" \
+    >"$BOSS_HR_CONNECTOR_LOG" 2>&1 &
+  echo "$!" > "$BOSS_HR_CONNECTOR_PID_FILE"
+  echo "BOSS HR relay connector started: pid $(cat "$BOSS_HR_CONNECTOR_PID_FILE")"
+  echo "Log: ${BOSS_HR_CONNECTOR_LOG}"
+  echo "PID file: ${BOSS_HR_CONNECTOR_PID_FILE}"
+}
+
+stop_connector() {
+  if [ ! -f "$BOSS_HR_CONNECTOR_PID_FILE" ]; then
+    echo "BOSS HR relay connector is not running: missing ${BOSS_HR_CONNECTOR_PID_FILE}"
+    return 0
+  fi
+  pid="$(cat "$BOSS_HR_CONNECTOR_PID_FILE" 2>/dev/null || true)"
+  if [ -z "$pid" ]; then
+    rm -f "$BOSS_HR_CONNECTOR_PID_FILE"
+    echo "BOSS HR relay connector is not running."
+    return 0
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+    echo "Stopped BOSS HR relay connector process ${pid}."
+  else
+    echo "BOSS HR relay connector process ${pid} is already stopped."
+  fi
+  rm -f "$BOSS_HR_CONNECTOR_PID_FILE"
 }
 
 stop_service() {
@@ -98,6 +155,8 @@ doctor() {
   echo "Chrome profile: ${HR_AGENT_CHROME_PROFILE}"
   echo "Log: ${HR_AGENT_LOG}"
   echo "PID file: ${HR_AGENT_PID_FILE}"
+  echo "Connector log: ${BOSS_HR_CONNECTOR_LOG}"
+  echo "Connector PID file: ${BOSS_HR_CONNECTOR_PID_FILE}"
 
   if command -v python3 >/dev/null 2>&1; then
     echo "python3: $(command -v python3)"
@@ -123,12 +182,29 @@ doctor() {
   else
     echo "service: stopped"
   fi
+
+  if [ -f "$BOSS_HR_CONNECTOR_PID_FILE" ]; then
+    connector_pid="$(cat "$BOSS_HR_CONNECTOR_PID_FILE" 2>/dev/null || true)"
+    if [ -n "$connector_pid" ] && kill -0 "$connector_pid" 2>/dev/null; then
+      echo "connector: running pid ${connector_pid}"
+    else
+      echo "connector: stale pid file"
+    fi
+  else
+    echo "connector: stopped"
+  fi
 }
 
 tail_logs() {
   ensure_dirs
   touch "$HR_AGENT_LOG"
   tail -n 80 -f "$HR_AGENT_LOG"
+}
+
+tail_connector_logs() {
+  ensure_dirs
+  touch "$BOSS_HR_CONNECTOR_LOG"
+  tail -n 80 -f "$BOSS_HR_CONNECTOR_LOG"
 }
 
 command="${1:-}"
@@ -140,8 +216,15 @@ case "$command" in
     shift
     connect_relay "$@"
     ;;
+  connect-daemon)
+    shift
+    connect_relay_daemon "$@"
+    ;;
   stop)
     stop_service
+    ;;
+  stop-connector)
+    stop_connector
     ;;
   status)
     status_service
@@ -151,6 +234,9 @@ case "$command" in
     ;;
   logs)
     tail_logs
+    ;;
+  connector-logs)
+    tail_connector_logs
     ;;
   install-deps)
     install_deps

@@ -85,7 +85,7 @@ class BossHrRelayTests(unittest.TestCase):
         try:
             message = {"id": "abc", "method": "GET", "path": "/health"}
 
-            def fake_request(local_base_url, method, path, json_body=None):
+            def fake_request(local_base_url, method, path, json_body=None, timeout_seconds=0):
                 return {"status_code": 200, "body": {"ok": True}, "text": ""}
 
             connector.perform_local_request = fake_request
@@ -95,6 +95,26 @@ class BossHrRelayTests(unittest.TestCase):
 
         self.assertEqual(response["id"], "abc")
         self.assertEqual(response["response"]["body"], {"ok": True})
+
+    def test_connector_forwards_local_timeout(self):
+        import python.boss_hr_relay_connector as connector
+
+        original = connector.perform_local_request
+        try:
+            captured = {}
+            message = {"id": "abc", "method": "POST", "path": "/v1/boss/applications/scan", "json_body": {"limit": 1}}
+
+            def fake_request(local_base_url, method, path, json_body=None, timeout_seconds=0):
+                captured["timeout_seconds"] = timeout_seconds
+                return {"status_code": 200, "body": {"status": "ready"}, "text": ""}
+
+            connector.perform_local_request = fake_request
+            response = handle_message(message, "http://127.0.0.1:8790", local_timeout_seconds=900)
+        finally:
+            connector.perform_local_request = original
+
+        self.assertEqual(response["response"]["body"], {"status": "ready"})
+        self.assertEqual(captured["timeout_seconds"], 900)
 
 
 if __name__ == "__main__":

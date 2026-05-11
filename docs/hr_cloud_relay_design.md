@@ -24,6 +24,7 @@ cd candidate-intel-agent
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-hr-agent.txt
 BOSS_HR_RELAY_TOKEN="<shared-secret>" \
+BOSS_HR_RELAY_REQUEST_TIMEOUT=900 \
 PYTHONPATH=python .venv/bin/uvicorn boss_hr_relay_service:app --host 0.0.0.0 --port 8791
 ```
 
@@ -39,6 +40,15 @@ On the user's Mac, after installing the lightweight companion:
 
 ```bash
 "$HOME/Library/Application Support/BossHrAgent/service/bin/boss-hr-agent" connect \
+  --relay-url https://relay.example.com \
+  --session-id "<user-session-id>" \
+  --token "<shared-secret>"
+```
+
+For first-time users, install and connect in the background with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nateEc/candidate-intel-agent/main/scripts/bootstrap_boss_hr_agent.sh | bash -s -- connect-daemon \
   --relay-url https://relay.example.com \
   --session-id "<user-session-id>" \
   --token "<shared-secret>"
@@ -86,6 +96,13 @@ POST /v1/sessions/<session-id>/boss/job/close
 ```
 
 These mirror the local companion API. The relay unwraps successful local responses and forwards local errors as HTTP errors.
+
+Long OCR scans are allowed to run synchronously. Set both relay and connector timeouts to about 900 seconds for testing:
+
+```bash
+BOSS_HR_RELAY_REQUEST_TIMEOUT=900
+BOSS_HR_CONNECTOR_LOCAL_TIMEOUT=900
+```
 
 ## Security Boundary
 

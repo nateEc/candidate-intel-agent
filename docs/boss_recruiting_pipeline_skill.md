@@ -26,10 +26,19 @@ Cloud relay mode:
 <BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>
 ```
 
+If `BOSS_HR_RELAY_BASE_URL` is configured, always use cloud relay mode. Never call `http://127.0.0.1:8790` from a cloud-hosted Metabot/OpenClaw runtime; that address is the cloud sandbox, not the recruiter's Mac.
+
 Relay calls must include:
 
 ```http
 x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
+```
+
+Current Metabot test defaults:
+
+```text
+BOSS_HR_RELAY_BASE_URL=http://115.190.10.83:8791
+BOSS_HR_RELAY_SESSION_ID=nate-metabot-test
 ```
 
 Chrome/CDP defaults:
@@ -62,6 +71,13 @@ Call:
 
 ```http
 POST /v1/boss/applications/scan
+```
+
+In relay mode, call:
+
+```http
+POST <BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>/boss/applications/scan
+x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 ```
 
 Payload:
@@ -146,6 +162,13 @@ Call:
 GET /v1/boss/applications/scan/{scan_run_id}
 ```
 
+In relay mode, call:
+
+```http
+GET <BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>/boss/applications/scan/{scan_run_id}
+x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
+```
+
 Use this if a cloud relay or UI needs to re-check a run record. The first P0 implementation runs synchronously, so most scans return `ready` in the initial response.
 
 ## W11: Prepare Greeting
@@ -156,6 +179,13 @@ To use the first BOSS common phrase:
 
 ```http
 POST /v1/boss/greetings/prepare
+```
+
+In relay mode, call:
+
+```http
+POST <BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>/boss/greetings/prepare
+x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 ```
 
 Payload:
@@ -203,6 +233,13 @@ Only call this after explicit confirmation:
 
 ```http
 POST /v1/boss/greetings/send
+```
+
+In relay mode, call:
+
+```http
+POST <BOSS_HR_RELAY_BASE_URL>/v1/sessions/<BOSS_HR_RELAY_SESSION_ID>/boss/greetings/send
+x-boss-relay-token: <BOSS_HR_RELAY_TOKEN>
 ```
 
 Payload:

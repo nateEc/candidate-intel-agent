@@ -17,6 +17,7 @@ from websocket import WebSocketConnectionClosedException, create_connection
 
 DEFAULT_LOCAL_BASE_URL = os.environ.get("BOSS_HR_AGENT_BASE_URL", "http://127.0.0.1:8790")
 DEFAULT_RECONNECT_SECONDS = float(os.environ.get("BOSS_HR_RELAY_RECONNECT_SECONDS", "3"))
+DEFAULT_LOCAL_TIMEOUT_SECONDS = float(os.environ.get("BOSS_HR_CONNECTOR_LOCAL_TIMEOUT", "900"))
 
 
 def main() -> int:
@@ -36,7 +37,7 @@ def main() -> int:
 
     while True:
         try:
-            run_connector(args.relay_url, session_id, token, args.local_base_url)
+            run_connector(args.relay_url, session_id, token, args.local_base_url, args.local_timeout_seconds)
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
@@ -52,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session-id", default=os.environ.get("BOSS_HR_RELAY_SESSION_ID", ""))
     parser.add_argument("--token", default=os.environ.get("BOSS_HR_RELAY_TOKEN", ""))
     parser.add_argument("--local-base-url", default=DEFAULT_LOCAL_BASE_URL)
+    parser.add_argument("--local-timeout-seconds", type=float, default=DEFAULT_LOCAL_TIMEOUT_SECONDS)
     parser.add_argument("--reconnect-seconds", type=float, default=DEFAULT_RECONNECT_SECONDS)
     parser.add_argument("--no-auto-start-local", dest="auto_start_local", action="store_false")
     parser.add_argument("--once", action="store_true")
@@ -59,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_connector(relay_url: str, session_id: str, token: str, local_base_url: str) -> None:
+def run_connector(relay_url: str, session_id: str, token: str, local_base_url: str, local_timeout_seconds: float) -> None:
     ws_url = build_ws_url(relay_url, session_id, token)
     print(f"Connecting BOSS HR relay session {session_id} -> {relay_url}")
     ws = create_connection(ws_url, timeout=30)
@@ -67,7 +69,7 @@ def run_connector(relay_url: str, session_id: str, token: str, local_base_url: s
         while True:
             raw_message = ws.recv()
             message = json.loads(raw_message)
-            response = handle_message(message, local_base_url)
+            response = handle_message(message, local_base_url, local_timeout_seconds)
             ws.send(json.dumps(response, ensure_ascii=False))
     finally:
         ws.close()
@@ -83,7 +85,7 @@ def build_ws_url(relay_url: str, session_id: str, token: str) -> str:
     return urllib.parse.urlunparse((scheme, netloc, connect_path, "", query, ""))
 
 
-def handle_message(message: dict[str, Any], local_base_url: str) -> dict[str, Any]:
+def handle_message(message: dict[str, Any], local_base_url: str, local_timeout_seconds: float = DEFAULT_LOCAL_TIMEOUT_SECONDS) -> dict[str, Any]:
     request_id = str(message.get("id") or "")
     if not request_id:
         return {"error": "missing request id"}
@@ -94,6 +96,7 @@ def handle_message(message: dict[str, Any], local_base_url: str) -> dict[str, An
             method=str(message.get("method") or "GET"),
             path=str(message.get("path") or "/health"),
             json_body=message.get("json_body"),
+            timeout_seconds=local_timeout_seconds,
         )
         return {"id": request_id, "response": local_response}
     except Exception as exc:
@@ -105,6 +108,7 @@ def perform_local_request(
     method: str,
     path: str,
     json_body: Any | None = None,
+    timeout_seconds: float = DEFAULT_LOCAL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     normalized_method = method.upper()
     if normalized_method not in {"GET", "POST"}:
@@ -119,7 +123,7 @@ def perform_local_request(
 
     request = urllib.request.Request(local_url, data=data, headers=headers, method=normalized_method)
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=max(1, float(timeout_seconds))) as response:
             status_code = int(response.status)
             raw = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
