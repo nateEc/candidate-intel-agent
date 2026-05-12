@@ -33,6 +33,7 @@ from boss_login_flow import (
     submit_sms_code,
 )
 from boss_recruiting_pipeline_flow import prepare_greeting, scan_applications, send_greeting
+import talent_library
 import talent_store
 
 
@@ -264,10 +265,28 @@ def job_close(payload: JobCloseRequest) -> dict[str, Any]:
 
 @app.post("/v1/boss/applications/scan")
 def applications_scan(payload: ApplicationScanRequest) -> dict[str, Any]:
-    return run_with_client(
+    result = run_with_client(
         lambda client: scan_applications(client, payload.model_dump(), DEFAULT_TALENT_DB),
         preferred_url_part="/web/chat/index",
     )
+    scan_run_id = result.get("scan_run_id")
+    if scan_run_id and result.get("count", 0) > 0:
+        if os.environ.get("DATABASE_URL"):
+            try:
+                with talent_library.connect() as conn:
+                    result["talent_library_ingest"] = talent_library.ingest_boss_snapshot_from_sqlite(
+                        conn,
+                        DEFAULT_TALENT_DB,
+                        scan_run_id=scan_run_id,
+                    )
+            except Exception as exc:
+                result["talent_library_ingest"] = {"status": "failed", "message": str(exc)}
+        else:
+            result["talent_library_ingest"] = {
+                "status": "skipped",
+                "message": "DATABASE_URL 未配置，BOSS 采集结果仅保存在本地采集缓存。",
+            }
+    return result
 
 
 @app.get("/v1/boss/applications/scan/{scan_run_id}")

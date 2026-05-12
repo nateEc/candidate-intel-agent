@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source ".env"
+  set +a
+fi
+
 HR_AGENT_HOST="${HR_AGENT_HOST:-127.0.0.1}"
 HR_AGENT_PORT="${HR_AGENT_PORT:-8790}"
 HR_AGENT_LOG="${HR_AGENT_LOG:-/tmp/boss-hr-agent-service.log}"

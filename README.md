@@ -52,6 +52,65 @@ curl -X POST http://127.0.0.1:8790/v1/boss/applications/scan \
   -d '{"job_filter":"AI工程师 _ 北京 20-30K","limit":20,"include_resumes":true,"dry_run":true}'
 ```
 
+## 智能简历库 v1
+
+智能简历库现在使用 Postgres + pgvector 作为主库。BOSS/SQLite 只保留为采集缓存和回放来源；agent 查询、匹配、复评、归池、邮件草稿都走 Postgres。
+
+本地开发可以直接启动项目自带的 pgvector Docker 容器：
+
+```bash
+npm run talent:db:start
+```
+
+这会启动/复用 `boss-talent-postgres` 容器，监听 `127.0.0.1:54329`，并把连接串写入本地 `.env`：
+
+```text
+DATABASE_URL=postgresql://talent:talent_dev_password@127.0.0.1:54329/talent_library
+```
+
+如果使用外部数据库，只要手动在 `.env` 或 shell 里配置：
+
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/talent_library"
+```
+
+初始化 schema / migration：
+
+```bash
+npm run talent:migrate
+```
+
+启动 Agent API：
+
+```bash
+npm run talent:service
+curl http://127.0.0.1:8792/health
+```
+
+把已有 BOSS 采集缓存导入 Postgres：
+
+```bash
+npm run talent:ingest -- --sqlite-db data-python/boss_talent.sqlite --limit 100
+```
+
+常用接口：
+
+```text
+POST /v1/talent/ingest/boss-snapshot       从现有 BOSS/SQLite 采集缓存入 Postgres
+POST /v1/talent/candidates/{id}/enrich     结构化简历、生成信号和证据
+GET  /v1/talent/candidates/{id}            查看完整候选人档案
+GET  /v1/talent/search                     关键词/城市/学历/评级/人才池检索
+POST /v1/talent/semantic-search            本地 hash embedding 语义检索
+POST /v1/talent/match-job                  给定 JD 生成候选人排序
+POST /v1/talent/pools/auto-assign          自动归入人才池
+POST /v1/talent/tasks/review               生成复评/回捞任务
+POST /v1/talent/outreach/email-draft       基于可见/导入 email 生成邮件草稿
+```
+
+这版先用本地规则抽取 + evidence + confidence 落库，表结构已为后续 LLM extractor 留好 `extractor_version`、`evidence_span_id`、`resume_versions` 和 `audit_events`。email 只来自简历可见、HR 手动补充、或导入数据，不做自动猜测。婚姻/家庭/健康等敏感属性只进入 `candidate_sensitive_attributes` 受限表，默认不参与匹配分、薪资判断或自动触达。
+
+BOSS HR Browser Agent 在 `DATABASE_URL` 存在时，会在投递巡检后自动把该次 scan 同步到 Postgres；未配置时仍只写本地采集缓存。
+
 ## 目标边界
 
 - 读取 HR 当前可见的搜索结果卡片。

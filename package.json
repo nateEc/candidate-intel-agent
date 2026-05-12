@@ -20,6 +20,10 @@
     "hr:connect-daemon": "./bin/boss-hr-agent connect-daemon",
     "hr:package": "./scripts/build_boss_hr_agent_release.sh",
     "hr:bootstrap": "./scripts/bootstrap_boss_hr_agent.sh",
+    "talent:db:start": "./scripts/start_talent_postgres.sh",
+    "talent:migrate": "./scripts/with_project_env.sh env PYTHONPATH=python .venv/bin/python python/talent_library.py migrate",
+    "talent:service": "./scripts/with_project_env.sh env PYTHONPATH=python .venv/bin/uvicorn talent_library_service:app --host 127.0.0.1 --port 8792",
+    "talent:ingest": "./scripts/with_project_env.sh env PYTHONPATH=python .venv/bin/python python/talent_library.py ingest-boss",
     "report:org": ".venv/bin/python python/org_report.py",
     "test:python": "python3 -m unittest discover -s tests -p 'test_*.py'",
     "test": "node --test tests/*.test.js"

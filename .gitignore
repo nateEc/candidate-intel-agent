@@ -12,5 +12,7 @@ dist/
 Scrapling/
 boss_filters.json
 boss_jobs_filters.json
+.env
+.env.*
 *.log
 .DS_Store
