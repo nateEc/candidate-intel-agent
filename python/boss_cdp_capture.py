@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "city": "",
     "position": "",
     "filters": [],
+    "activity_filter": "",
     "limit": 20,
     "include_details": True,
     "detail_wait_ms": 900,
@@ -37,6 +38,16 @@ DEFAULT_CONFIG = {
     "no_growth_rounds": 2,
     "hard_max_candidates": 1000,
     "manual_ready": True,
+}
+
+
+ACTIVITY_FILTER_LABELS = {
+    "不限",
+    "刚刚活跃",
+    "今日活跃",
+    "3日内活跃",
+    "近一周活跃",
+    "近一个月活跃",
 }
 
 
@@ -487,16 +498,130 @@ SET_SEARCH_KEYWORD_JS = r"""
 """
 
 
+SELECT_ACTIVITY_FILTER_JS = r"""
+async (label) => {
+  const scope = getSearchScope();
+  const doc = scope.document;
+  const actions = [];
+  const activityLabels = new Set(["不限", "刚刚活跃", "今日活跃", "3日内活跃", "近一周活跃", "近一个月活跃"]);
+
+  if (!label) return { ok: true, actions, state: readState() };
+
+  const before = readState();
+  if (before.activityFilter === label) {
+    actions.push(`activity-filter-current:${label}`);
+    return { ok: true, actions, state: before };
+  }
+
+  const trigger = findActivityTrigger();
+  if (!trigger) {
+    return { ok: false, reason: "activity-trigger-not-found", actions, state: before };
+  }
+
+  clickElement(trigger);
+  actions.push(`activity-filter-open:${normalize(trigger.textContent)}`);
+  await pause(280);
+
+  const option = findVisibleText(label);
+  if (!option) {
+    return { ok: false, reason: `activity-option-not-found:${label}`, actions, state: readState() };
+  }
+
+  clickElement(option);
+  actions.push(`activity-filter:${label}`);
+  await pause(420);
+
+  const after = readState();
+  if (after.activityFilter !== label) {
+    return { ok: false, reason: `activity-filter-not-applied:${label}->${after.activityFilter || ""}`, actions, state: after };
+  }
+
+  return { ok: true, actions, state: after };
+
+  function findActivityTrigger() {
+    const elements = visibleElements();
+    const rowLabel = elements.find((el) => normalize(el.textContent) === "其他筛选");
+    const rowRect = rowLabel ? rowLabel.getBoundingClientRect() : null;
+    const rowCenter = rowRect ? rowRect.y + rowRect.height / 2 : null;
+    const sameRow = elements.filter((el) => {
+      const rect = el.getBoundingClientRect();
+      const text = normalize(el.textContent);
+      if (!text || text.length > 12) return false;
+      if (rowCenter !== null && Math.abs((rect.y + rect.height / 2) - rowCenter) > 32) return false;
+      if (rowRect && rect.x <= rowRect.x + rowRect.width) return false;
+      return true;
+    });
+
+    const active = sameRow.find((el) => {
+      const text = normalize(el.textContent).replace(/[▲▼▾▴]/g, "").trim();
+      return text === "牛人活跃度" || activityLabels.has(text);
+    });
+    if (active) return active;
+
+    const dropdowns = sameRow.filter((el) => /▼|▾|活跃/.test(normalize(el.textContent)));
+    return dropdowns[2] || null;
+  }
+
+  function findVisibleText(text) {
+    return visibleElements().find((el) => normalize(el.textContent) === text);
+  }
+
+  function visibleElements() {
+    return [...doc.querySelectorAll("button, a, span, div, li")].filter(visible);
+  }
+
+  function clickElement(element) {
+    element.scrollIntoView({ block: "center", inline: "nearest" });
+    element.click();
+  }
+
+  function readState() {
+    const text = normalize(doc.body ? doc.body.innerText : "");
+    const trigger = findActivityTrigger();
+    const triggerText = normalize(trigger ? trigger.textContent : "").replace(/[▲▼▾▴]/g, "").trim();
+    const selected = activityLabels.has(triggerText) ? triggerText : "";
+    return { activityFilter: selected || "", visibleTextHead: text.slice(0, 360) };
+  }
+
+  function visible(el) {
+    const rect = el.getBoundingClientRect();
+    const style = scope.window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  }
+
+  function pause(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getSearchScope() {
+    const frames = [...document.querySelectorAll("iframe")];
+    const frame = frames.find((item) => item.src.includes("/web/frame/search")) || frames[0];
+    if (frame && frame.contentWindow && frame.contentDocument) {
+      return { window: frame.contentWindow, document: frame.contentDocument };
+    }
+    return { window, document };
+  }
+
+  function normalize(text) {
+    return String(text || "").replace(/\s+/g, " ").trim();
+  }
+}
+"""
+
+
 READ_SEARCH_STATE_JS = r"""
 () => {
   const scope = getSearchScope();
   const doc = scope.document;
   const input = doc.querySelector(".search-input");
+  const bodyText = normalize(doc.body ? doc.body.innerText : "");
+  const activityLabels = ["近一个月活跃", "近一周活跃", "3日内活跃", "今日活跃", "刚刚活跃"];
   return {
     city: normalize((doc.querySelector(".city") || {}).textContent),
     position: normalize((doc.querySelector(".search-current-job") || {}).textContent),
     keyword: input ? input.value : "",
-    visibleTextHead: normalize(doc.body ? doc.body.innerText : "").slice(0, 260)
+    activityFilter: activityLabels.find((item) => bodyText.includes(item)) || "",
+    visibleTextHead: bodyText.slice(0, 260)
   };
 
   function getSearchScope() {
@@ -858,6 +983,14 @@ def apply_search_config(client: CdpClient, config: dict[str, Any]) -> dict[str, 
         )
         time.sleep(0.25)
 
+    if config.get("activity_filter"):
+        activity_result = client.evaluate(SELECT_ACTIVITY_FILTER_JS, config["activity_filter"]) or {}
+        actions.extend(activity_result.get("actions", []))
+        if not activity_result.get("ok"):
+            actions.append(activity_result.get("reason") or f"activity-filter-failed:{config['activity_filter']}")
+            return {"ok": False, "actions": actions, "state": activity_result.get("state") or client.evaluate(READ_SEARCH_STATE_JS)}
+        time.sleep(0.35)
+
     actions.append(click_search_point(client, {"selector": ".icon-search"}, "search:icon") or "search-missing")
     time.sleep(1.0)
 
@@ -934,6 +1067,8 @@ def main() -> None:
         config["position"] = args.position
     if args.filters is not None:
         config["filters"] = args.filters
+    if args.activity_filter is not None:
+        config["activity_filter"] = args.activity_filter
     if args.clear_filters:
         config["filters"] = []
     if args.no_details:
@@ -966,6 +1101,8 @@ def main() -> None:
         if not config.get("skip_apply"):
             apply_result = apply_search_config(client, config)
             print(f"已应用搜索条件：{json.dumps(apply_result, ensure_ascii=False)}")
+            if not apply_result.get("ok"):
+                raise RuntimeError(f"搜索条件设置失败：{json.dumps(apply_result, ensure_ascii=False)}")
             time.sleep(1.2)
         elif args.apply_only:
             print("--apply-only 与 --skip-apply 同时传入，没有执行搜索条件设置。")
@@ -1139,6 +1276,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--city", default=None, help="城市/地区，例如 热门、北京、上海")
     parser.add_argument("--position", default=None, help="职位下拉项，例如 不限职位")
     parser.add_argument("--filter", action="append", dest="filters", help="额外筛选项，可重复传入")
+    parser.add_argument("--activity-filter", choices=sorted(ACTIVITY_FILTER_LABELS), default=None, help="牛人活跃度筛选，例如 近一周活跃、近一个月活跃")
     parser.add_argument("--clear-filters", action="store_true", help="清空配置文件中的 filters")
     parser.add_argument("--cdp-url", default=None, help="Chrome DevTools URL，例如 http://127.0.0.1:9222")
     parser.add_argument("--no-details", action="store_true", help="只采列表，不点详情")

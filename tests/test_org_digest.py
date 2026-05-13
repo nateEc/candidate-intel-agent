@@ -214,6 +214,92 @@ class OrgDigestTests(unittest.TestCase):
 
         self.assertEqual(eta_seconds, 1200)
 
+    def test_candidate_only_eta_uses_candidate_sample_size(self):
+        with store.connect(self.db_path) as conn:
+            request = org_intel_service.OrgIntelRequest(
+                company="腾讯",
+                aliases=["腾讯"],
+                mode="standard",
+                refresh="candidates",
+                candidates_limit=90,
+                report=True,
+            )
+            eta_seconds = org_intel_service.estimate_eta_seconds(request, conn)
+
+        self.assertEqual(eta_seconds, 2400)
+
+    def test_digest_jobs_set_activity_filter_by_cadence(self):
+        subscription = self.create_subscription()
+
+        weekly_response = self.client.post(
+            f"/v1/org-intel/subscriptions/{subscription['id']}/digest-runs",
+            headers=self.auth(),
+            json={"cadence": "weekly", "client_request_id": "cron-weekly"},
+        )
+
+        self.assertEqual(weekly_response.status_code, 200, weekly_response.text)
+        with store.connect(self.db_path) as conn:
+            rows = conn.execute("SELECT request_json FROM org_intel_jobs ORDER BY created_at").fetchall()
+        self.assertTrue(rows)
+        self.assertEqual(
+            {json.loads(row["request_json"])["candidate_activity_filter"] for row in rows},
+            {"weekly_active"},
+        )
+
+    def test_run_capture_candidates_passes_activity_filter_to_cli(self):
+        captured = {}
+        original = org_intel_service.run_capture_command
+
+        def fake_run_capture_command(command):
+            captured["command"] = command
+            return Path("run.json"), " ".join(command)
+
+        org_intel_service.run_capture_command = fake_run_capture_command
+        try:
+            org_intel_service.run_capture_candidates(
+                {
+                    "company": "华为",
+                    "mode": "quick",
+                    "candidate_position": "不限职位",
+                    "candidate_activity_filter": "weekly_active",
+                }
+            )
+        finally:
+            org_intel_service.run_capture_command = original
+
+        self.assertIn("--activity-filter", captured["command"])
+        self.assertIn("近一周活跃", captured["command"])
+
+    def test_active_job_reuse_respects_activity_filter(self):
+        with store.connect(self.db_path) as conn:
+            active = store.create_job(
+                conn,
+                {
+                    "company": "理想汽车",
+                    "aliases": ["理想汽车"],
+                    "mode": "standard",
+                    "refresh": "candidates",
+                    "report": True,
+                    "candidate_activity_filter": "weekly_active",
+                },
+                eta_seconds=1200,
+            )
+
+        response = self.client.post(
+            "/v1/org-intel/requests",
+            headers=self.auth(),
+            json={
+                "company": "理想汽车",
+                "aliases": ["理想汽车"],
+                "mode": "standard",
+                "refresh": "candidates",
+                "candidate_activity_filter": "monthly_active",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotEqual(response.json()["job_id"], active["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

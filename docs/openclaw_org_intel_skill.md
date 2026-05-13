@@ -139,6 +139,7 @@ Request body:
   "aliases": ["字节跳动", "ByteDance", "抖音", "TikTok", "飞书"],
   "mode": "standard",
   "refresh": "candidates",
+  "candidate_activity_filter": "monthly_active",
   "client_request_id": "openclaw-user-or-thread-id"
 }
 ```
@@ -151,6 +152,7 @@ Fields:
 | `aliases` | no | Known aliases, products, English names, business units. |
 | `mode` | no | `quick`, `standard`, or `full`. Default `standard`. |
 | `refresh` | no | For this skill, use only `candidates` or `none`. Default to `candidates`. Do not use `auto`, `jobs`, or `all` here. |
+| `candidate_activity_filter` | no | On-demand requests use `monthly_active`, meaning BOSS talent-library filter `近一个月活跃`. |
 | `client_request_id` | no | OpenClaw conversation/request ID for traceability. |
 
 Mode selection:
@@ -164,6 +166,7 @@ Default to `standard` unless the user explicitly asks for faster or deeper analy
 Candidate-only request rule:
 
 - Default every on-demand request to `"refresh": "candidates"`.
+- Default every on-demand request to `"candidate_activity_filter": "monthly_active"` (`近一个月活跃`).
 - Use `"refresh": "none"` only for cache/demo/test mode.
 - Never send `"refresh": "jobs"` or `"refresh": "all"` from this skill.
 - Avoid `"refresh": "auto"` for now because it may decide to refresh job-side data when the job table is stale.
@@ -225,7 +228,7 @@ Important first-turn rule:
 Recommended user reply:
 
 ```text
-我这边还没有字节的新鲜候选人情报，已经开始采集 BOSS 人才库可见信号。预计 35 分钟后完成；到时间我会自动回来取报告并发给你。
+我这边还没有字节的新鲜候选人情报，已经开始采集 BOSS 人才库近一个月活跃信号。预计 35 分钟后完成；到时间我会自动回来取报告并发给你。
 ```
 
 Then poll:
@@ -345,8 +348,8 @@ POST /v1/org-intel/subscriptions
     {"company": "月之暗面", "aliases": ["Moonshot", "Kimi", "moonshot.ai"], "mode": "standard"}
   ],
   "timezone": "Asia/Shanghai",
-  "weekly_since_days": 14,
-  "monthly_since_days": 45,
+  "weekly_since_days": 7,
+  "monthly_since_days": 30,
   "freshness_policy": "candidates",
   "status": "active"
 }
@@ -390,6 +393,8 @@ Candidate-only subscription rule:
 - Set `freshness_policy` to `"candidates"` for normal weekly/monthly runs.
 - Set `freshness_policy` to `"none"` only for test mode or cache-only previews.
 - Do not set `freshness_policy` to `"auto"`, `"jobs"`, or `"all"` from this skill.
+- Weekly digest runs use BOSS talent-library activity filter `candidate_activity_filter=weekly_active` (`近一周活跃`).
+- Monthly digest runs use BOSS talent-library activity filter `candidate_activity_filter=monthly_active` (`近一个月活跃`).
 - If the backend-generated `digest_markdown` includes job-posting language, the agent should filter or summarize around candidate/talent sections only.
 
 ### Test mode: reuse existing reports only
@@ -423,8 +428,8 @@ POST /v1/org-intel/subscriptions/{subscription_id}/digest-runs
 
 `cadence` can be `weekly` or `monthly`. The backend uses:
 
-- weekly: `weekly_since_days`, default 14 days
-- monthly: `monthly_since_days`, default 45 days
+- weekly: `weekly_since_days`, default 7 days, and BOSS activity filter `近一周活跃`
+- monthly: `monthly_since_days`, default 30 days, and BOSS activity filter `近一个月活跃`
 - refresh: subscription `freshness_policy`; this skill should use `candidates` for production and `none` for cache-only tests.
 
 If an active digest run already exists for the same subscription and cadence, the service returns that run instead of creating duplicates.
@@ -522,6 +527,7 @@ def handle_org_intel_request(user_text, thread_id):
         "aliases": aliases,
         "mode": "standard",
         "refresh": "candidates",
+        "candidate_activity_filter": "monthly_active",
         "client_request_id": thread_id,
     }
     result = post("/v1/org-intel/requests", payload)
@@ -531,7 +537,7 @@ def handle_org_intel_request(user_text, thread_id):
 
     if result["status"] in ["queued", "running_jobs", "running_candidates", "importing", "generating_report"]:
         schedule_poll(result["job_id"], result["eta_at"])
-        return f"我这边还没有{company}的新鲜候选人情报，已经开始采集 BOSS 人才库可见信号。预计 {minutes(result['eta_seconds'])} 分钟后完成；到时间我会自动回来取报告并发给你。"
+        return f"我这边还没有{company}的新鲜候选人情报，已经开始采集 BOSS 人才库近一个月活跃信号。预计 {minutes(result['eta_seconds'])} 分钟后完成；到时间我会自动回来取报告并发给你。"
 
     if result["status"] == "ready" and result.get("job_id"):
         # This can happen only when polling an existing job, not as the first user-facing step.
@@ -555,6 +561,8 @@ def handle_ceo_subscription_request(user_text, owner_id):
         "cadence": cadence,
         "companies": enrich_company_aliases(companies),
         "timezone": "Asia/Shanghai",
+        "weekly_since_days": 7,
+        "monthly_since_days": 30,
         "freshness_policy": "candidates",
     }
     subscription = post("/v1/org-intel/subscriptions", payload)

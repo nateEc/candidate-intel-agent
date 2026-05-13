@@ -28,6 +28,12 @@ DEFAULT_CANDIDATES_CDP_URL = os.environ.get("BOSS_CANDIDATES_CDP_URL", "http://1
 DEFAULT_JOBS_CDP_URL = os.environ.get("BOSS_JOBS_CDP_URL", "http://127.0.0.1:9223")
 ORG_INTEL_API_TOKEN = os.environ.get("ORG_INTEL_API_TOKEN")
 
+CandidateActivityFilter = Literal["none", "weekly_active", "monthly_active"]
+ACTIVITY_FILTER_LABELS: dict[str, str] = {
+    "weekly_active": "近一周活跃",
+    "monthly_active": "近一个月活跃",
+}
+
 
 app = FastAPI(title="Org Intel Agent", version="0.1.0")
 worker_stop = threading.Event()
@@ -46,6 +52,7 @@ class OrgIntelRequest(BaseModel):
     city: str = "100010000"
     candidate_city: str | None = None
     candidate_position: str = "不限职位"
+    candidate_activity_filter: CandidateActivityFilter = "monthly_active"
     freshness_hours: int = 24
     jobs_cdp_url: str = DEFAULT_JOBS_CDP_URL
     candidates_cdp_url: str = DEFAULT_CANDIDATES_CDP_URL
@@ -76,8 +83,8 @@ class SubscriptionCreateRequest(BaseModel):
     cadence: Literal["weekly", "monthly", "weekly_and_monthly"] = "weekly"
     companies: list[SubscriptionCompany] = Field(min_length=1)
     timezone: str = "Asia/Shanghai"
-    weekly_since_days: int = Field(default=14, ge=1, le=365)
-    monthly_since_days: int = Field(default=45, ge=1, le=730)
+    weekly_since_days: int = Field(default=7, ge=1, le=365)
+    monthly_since_days: int = Field(default=30, ge=1, le=730)
     freshness_policy: Literal["auto", "none", "jobs", "candidates", "all"] = "auto"
     status: Literal["active", "paused"] = "active"
 
@@ -190,7 +197,7 @@ def create_org_intel_request(payload: OrgIntelRequest) -> OrgIntelResponse:
                 )
 
         active = store.get_active_job_for_company(conn, payload.company)
-        if active:
+        if active and can_reuse_active_job(active, payload):
             return job_to_response(conn, active, "已有同公司任务在执行，返回当前任务状态。")
 
         eta_seconds = estimate_eta_seconds(payload, conn)
@@ -339,8 +346,8 @@ def subscription_to_response(subscription: dict[str, Any]) -> SubscriptionRespon
         cadence=subscription.get("cadence", "weekly"),
         companies=subscription.get("companies", []),
         timezone=subscription.get("timezone", "Asia/Shanghai"),
-        weekly_since_days=int(subscription.get("weekly_since_days") or 14),
-        monthly_since_days=int(subscription.get("monthly_since_days") or 45),
+        weekly_since_days=int(subscription.get("weekly_since_days") or 7),
+        monthly_since_days=int(subscription.get("monthly_since_days") or 30),
         freshness_policy=subscription.get("freshness_policy", "auto"),
         status=subscription.get("status", "active"),
         created_at=subscription.get("created_at"),
@@ -380,6 +387,7 @@ def create_or_reuse_company_job(
         refresh=subscription.get("freshness_policy") or "auto",
         client_request_id=payload.client_request_id,
         report=True,
+        candidate_activity_filter=activity_filter_for_cadence(payload.cadence),
         freshness_hours=since_days * 24,
     )
     request_data = request_model.model_dump()
@@ -401,7 +409,7 @@ def create_or_reuse_company_job(
             )
 
     active = store.get_active_job_for_company(conn, company)
-    if active:
+    if active and can_reuse_active_job(active, request_model):
         return (
             {
                 "company": company,
@@ -425,6 +433,12 @@ def create_or_reuse_company_job(
         },
         eta_seconds,
     )
+
+
+def can_reuse_active_job(active: dict[str, Any], request_model: OrgIntelRequest) -> bool:
+    active_request = active.get("request") or {}
+    active_filter = active_request.get("candidate_activity_filter") or "monthly_active"
+    return active_filter == request_model.candidate_activity_filter
 
 
 def advance_digest_run(conn: Any, digest: dict[str, Any]) -> dict[str, Any]:
@@ -599,8 +613,18 @@ def digest_status_message(digest: dict[str, Any]) -> str:
 
 def since_days_for_cadence(subscription: dict[str, Any], cadence: str) -> int:
     if cadence == "monthly":
-        return int(subscription.get("monthly_since_days") or 45)
-    return int(subscription.get("weekly_since_days") or 14)
+        return int(subscription.get("monthly_since_days") or 30)
+    return int(subscription.get("weekly_since_days") or 7)
+
+
+def activity_filter_for_cadence(cadence: str) -> CandidateActivityFilter:
+    return "weekly_active" if cadence == "weekly" else "monthly_active"
+
+
+def boss_activity_filter_label(activity_filter: str | None) -> str | None:
+    if not activity_filter or activity_filter == "none":
+        return None
+    return ACTIVITY_FILTER_LABELS.get(activity_filter)
 
 
 def worker_loop() -> None:
@@ -747,6 +771,9 @@ def run_capture_candidates(request: dict[str, Any]) -> tuple[Path, str]:
     ]
     if request.get("candidate_city"):
         command.extend(["--city", request["candidate_city"]])
+    activity_label = boss_activity_filter_label(request.get("candidate_activity_filter"))
+    if activity_label:
+        command.extend(["--activity-filter", activity_label])
     if mode == "quick":
         command.append("--no-details")
     return run_capture_command(command)
@@ -885,10 +912,20 @@ def status_message(job: dict[str, Any]) -> str:
 def estimate_eta_seconds(request: OrgIntelRequest, conn: Any) -> int:
     required_sources = refresh_sources_for_request(request)
     mode_base = {"quick": 600, "standard": 2100, "full": 5400}[request.mode]
+    if required_sources == ["candidates"]:
+        mode_base = estimate_candidate_eta_seconds(request)
     if request.report and not required_sources:
         mode_base = 90
     active_count = active_job_count(conn)
     return mode_base * (active_count + 1)
+
+
+def estimate_candidate_eta_seconds(request: OrgIntelRequest) -> int:
+    limit = int(request.candidates_limit or default_candidates_limit(request.mode))
+    per_candidate = {"quick": 12, "standard": 20, "full": 28}[request.mode]
+    base_seconds = 420
+    report_seconds = 180 if request.report else 0
+    return base_seconds + min(limit, 1000) * per_candidate + report_seconds
 
 
 def active_job_count(conn: Any) -> int:
@@ -904,6 +941,9 @@ def queued_message(request: OrgIntelRequest, eta_seconds: int) -> str:
     required_sources = refresh_sources_for_request(request)
     if request.report and not required_sources:
         return f"{request.company} 已有新鲜原始数据，正在生成组织情报报告，预计 {human_eta(eta_seconds)}后可取。"
+    if required_sources == ["candidates"]:
+        activity_label = boss_activity_filter_label(request.candidate_activity_filter) or "可见"
+        return f"{request.company} 人才侧组织情报正在采集中，正在整理 BOSS 人才库{activity_label}候选人信号，预计 {human_eta(eta_seconds)}后可取。"
     source_text = "、".join(required_sources) if required_sources else "数据"
     return f"{request.company} 组织情报正在采集中，需要刷新 {source_text}，预计 {human_eta(eta_seconds)}后可取。"
 
